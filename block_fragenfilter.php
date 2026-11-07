@@ -95,7 +95,7 @@ class block_fragenfilter extends block_base {
 
         // Check export permission and pass it to JavaScript.
         // Recalculate each time so pool accounts see the correct buttons after login.
-        $canexport = isloggedin() && !isguestuser() && has_capability('block/fragenfilter:export', context_system::instance());
+        $canexport = \block_fragenfilter\visitor_access::may_export();
 
         // Load the AMD module.
         $this->page->requires->js_call_amd('block_fragenfilter/filter', 'init', [
@@ -107,7 +107,7 @@ class block_fragenfilter extends block_base {
                 'qtypessource' => get_config('block_fragenfilter', 'questiontypes_source') ?: 'installed',
                 'wwwroot' => $CFG->wwwroot,
                 'canexport' => $canexport,
-                'isloggedin' => (isloggedin() && !isguestuser()),
+                'isloggedin' => \block_fragenfilter\visitor_access::has_real_login(),
             ],
         ]);
 

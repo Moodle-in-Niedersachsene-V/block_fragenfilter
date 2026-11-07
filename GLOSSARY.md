@@ -75,6 +75,11 @@ Welche Fragen ein Nutzer sehen darf, geregelt über die Moodle-Capabilities `que
 _Avoid_: Rechte bei der Suche
 Code: `visibility`
 
+**Besucher-Berechtigung**:
+Die Entscheidung, ob ein Besucher sich echt angemeldet hat, exportieren darf und eine Vorschau starten darf; Gast- und anonyme Besucher sind vom Export ausgeschlossen.
+_Avoid_: Gastrecht, Exportrecht
+Code: `visitor_access`
+
 ## KI-Verschlagwortung
 
 **Tag-Vorschlag**:

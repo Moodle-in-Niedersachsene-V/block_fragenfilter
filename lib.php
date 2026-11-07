@@ -55,12 +55,12 @@ function block_fragenfilter_pluginfile(
         send_file_not_found();
     }
 
-    if (!has_capability('block/fragenfilter:export', context_system::instance())) {
+    if (!\block_fragenfilter\visitor_access::may_export()) {
         send_file_not_found();
     }
 
     $itemid = array_shift($args);
-    if ((int)$itemid !== (int)$USER->id || count($args) !== 1 || isguestuser()) {
+    if ((int)$itemid !== (int)$USER->id || count($args) !== 1) {
         send_file_not_found();
     }
     $filename = array_pop($args);

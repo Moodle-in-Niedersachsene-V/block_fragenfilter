@@ -51,7 +51,7 @@ if (!\block_fragenfilter\question_visibility::is_visible($qid)) {
 }
 
 $previewurl = new moodle_url('/question/bank/previewquestion/preview.php', ['id' => $qid]);
-$hasreallogin = isloggedin() && !isguestuser();
+$hasreallogin = \block_fragenfilter\visitor_access::has_real_login();
 $outcome = \block_kursfilter\preview_starter::start(null, $hasreallogin);
 
 $notices = [

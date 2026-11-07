@@ -494,7 +494,7 @@ class block_fragenfilter_external extends external_api {
         self::validate_context($context);
 
         // Export requires a dedicated capability, unavailable to guests.
-        if (!isloggedin() || isguestuser() || !has_capability('block/fragenfilter:export', context_system::instance())) {
+        if (!\block_fragenfilter\visitor_access::may_export()) {
             throw new moodle_exception('nopermission', 'block_fragenfilter');
         }
 
@@ -628,9 +628,9 @@ class block_fragenfilter_external extends external_api {
         $formats = implode(',', \block_fragenfilter\question_export::enabled_formats());
 
         return [
-            'canexport'     => isloggedin() && !isguestuser() && has_capability('block/fragenfilter:export', $sysctx),
-            'canpreview'    => isloggedin() && !isguestuser(),
-            'isloggedin'    => isloggedin() && !isguestuser(),
+            'canexport'     => \block_fragenfilter\visitor_access::may_export(),
+            'canpreview'    => \block_fragenfilter\visitor_access::may_preview(),
+            'isloggedin'    => \block_fragenfilter\visitor_access::has_real_login(),
             'exportformats' => $formats,
         ];
     }

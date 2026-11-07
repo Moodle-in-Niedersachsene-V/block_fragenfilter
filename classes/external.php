@@ -47,12 +47,6 @@ class block_fragenfilter_external extends external_api {
     /** Default result limit when the caller does not provide one. */
     const DEFAULT_RESULT_LIMIT = 200;
 
-    /** Maximum number of distinct question IDs per get_ratings call, matching the search limit. */
-    const MAX_RATING_IDS = self::MAX_RESULT_LIMIT;
-
-    /** @var string|null Rating cookie shared by all calls in the current AJAX batch. */
-    private static ?string $ratingcookie = null;
-
     /**
      * Validates the caller context without retaining an anonymous guest login.
      *
@@ -418,8 +412,6 @@ class block_fragenfilter_external extends external_api {
      * @return array Current average, count and own rating.
      * nosemgrep: moodle-external-ohne-kontextpruefung */
     public static function rate_question(int $questionid, int $rating, int $contextid): array {
-        global $DB;
-
         $params = self::validate_parameters(self::rate_question_parameters(), [
             'questionid' => $questionid,
             'rating' => $rating,
@@ -433,30 +425,7 @@ class block_fragenfilter_external extends external_api {
         if ($params['rating'] < 1 || $params['rating'] > 5) {
             throw new invalid_parameter_exception('Rating must be between 1 and 5.');
         }
-        $qid = (int)$params['questionid'];
-        if (!\block_fragenfilter\question_visibility::is_visible($qid)) {
-            throw new moodle_exception('invalidquestion', 'block_fragenfilter');
-        }
-        $hash = self::$ratingcookie ??= \block_kursfilter\rating_helper::renew_cookie_hash()
-            ?? \block_kursfilter\rating_helper::create_cookie_hash();
-        $record = (object)[
-            'questionid' => $qid, 'cookiehash' => $hash,
-            'stars' => $params['rating'], 'timecreated' => time(),
-        ];
-        // The unique index also protects simultaneous requests from the same browser.
-        try {
-            $record->id = $DB->insert_record('block_fragenfilter_ratings', $record);
-        } catch (dml_write_exception $e) {
-            if (!$DB->record_exists('block_fragenfilter_ratings', ['questionid' => $qid, 'cookiehash' => $hash])) {
-                throw $e;
-            }
-            return self::compute_rating($qid, $hash);
-        }
-        \block_fragenfilter\event\question_rated::create([
-            'context' => $context, 'objectid' => $record->id,
-            'other' => ['questionid' => $qid, 'stars' => $params['rating']],
-        ])->trigger();
-        return self::compute_rating($qid, $hash);
+        return \block_fragenfilter\rating::rate((int)$params['questionid'], $params['rating'], $context);
     }
 
     /**
@@ -489,7 +458,7 @@ class block_fragenfilter_external extends external_api {
      * Context and block access are checked by validate_search_context(). Only questions the
      * caller may see carry rating data; all others are answered like unknown questions.
      *
-     * @param string $questionids Comma-separated question IDs, at most MAX_RATING_IDS distinct ones.
+     * @param string $questionids Comma-separated question IDs, at most rating::MAX_IDS distinct ones.
      * @param int    $contextid   Current context.
      * @return array Average, count and own rating for each requested question.
      * nosemgrep: moodle-external-ohne-kontextpruefung */
@@ -497,8 +466,6 @@ class block_fragenfilter_external extends external_api {
         string $questionids,
         int $contextid
     ): array {
-        global $DB;
-
         $params = self::validate_parameters(self::get_ratings_parameters(), [
             'questionids' => $questionids,
             'contextid'   => $contextid,
@@ -510,55 +477,16 @@ class block_fragenfilter_external extends external_api {
             array_map('intval', explode(',', $params['questionids'])),
             fn(int $id): bool => $id > 0
         )));
-        if (count($requested) > self::MAX_RATING_IDS) {
-            throw new invalid_parameter_exception('At most ' . self::MAX_RATING_IDS . ' questions may be requested.');
+        if (count($requested) > \block_fragenfilter\rating::MAX_IDS) {
+            throw new invalid_parameter_exception(
+                'At most ' . \block_fragenfilter\rating::MAX_IDS . ' questions may be requested.'
+            );
         }
         if (empty($requested)) {
             return ['ratings' => []];
         }
-        // Questions the caller cannot see are answered like unknown ones: no rating data.
-        $visible = \block_fragenfilter\question_visibility::visible_ids($requested);
-        $avgs = [];
-        $myratings = [];
-        if ($visible) {
-            [$insql, $args] = $DB->get_in_or_equal($visible, SQL_PARAMS_NAMED, 'qid');
-
-            // Average and count per question.
-            $avgs = $DB->get_records_sql(
-                "SELECT questionid,
-                        AVG(stars) AS average,
-                        COUNT(*)    AS cnt
-                   FROM {block_fragenfilter_ratings}
-                  WHERE questionid $insql
-               GROUP BY questionid",
-                $args
-            );
-
-            $hash = self::$ratingcookie ?? \block_kursfilter\rating_helper::get_cookie_hash();
-            if ($hash !== null) {
-                $rows = $DB->get_records_sql(
-                    "SELECT questionid, stars
-                       FROM {block_fragenfilter_ratings}
-                      WHERE questionid $insql
-                        AND cookiehash = :hash",
-                    array_merge($args, ['hash' => $hash])
-                );
-                foreach ($rows as $row) {
-                    $myratings[(int)$row->questionid] = (int)$row->stars;
-                }
-            }
-        }
-
-        $result = [];
-        foreach ($requested as $qid) {
-            $result[] = [
-                'questionid' => $qid,
-                'average'    => isset($avgs[$qid]) ? round((float)$avgs[$qid]->average, 1) : 0.0,
-                'count'      => isset($avgs[$qid]) ? (int)$avgs[$qid]->cnt : 0,
-                'myrating'   => $myratings[$qid] ?? 0,
-            ];
-        }
-        return ['ratings' => $result];
+        $hash = \block_fragenfilter\rating::cookie_for_reading();
+        return ['ratings' => \block_fragenfilter\rating::for_questions($requested, $hash)];
     }
 
     /**
@@ -575,33 +503,5 @@ class block_fragenfilter_external extends external_api {
                 ])
             ),
         ]);
-    }
-
-    /**
-     * Calculates the average and own rating for one question.
-     *
-     * @param int      $qid    Question ID.
-     * @param string $hash Kursfilter cookie hash.
-     * @return array Average, count and own rating.
-     */
-    private static function compute_rating(int $qid, string $hash): array {
-        global $DB;
-
-        $avg  = (float)$DB->get_field_sql(
-            "SELECT AVG(stars) FROM {block_fragenfilter_ratings} WHERE questionid = :qid",
-            ['qid' => $qid]
-        );
-        $cnt  = $DB->count_records('block_fragenfilter_ratings', ['questionid' => $qid]);
-        $mine = (int)$DB->get_field(
-            'block_fragenfilter_ratings',
-            'stars',
-            ['questionid' => $qid, 'cookiehash' => $hash]
-        );
-
-        return [
-            'average'  => round($avg, 1),
-            'count'    => (int)$cnt,
-            'myrating' => $mine,
-        ];
     }
 }

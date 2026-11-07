@@ -25,13 +25,17 @@ namespace block_fragenfilter;
  */
 final class question_visibility {
     /**
-     * SQL predicate for the question (q) and category (qc) aliases.
+     * The one query every list of questions starts from: ready, top-level questions the current user may see.
      *
-     * @param string $scope Search scope.
-     * @param int $contextid Current context.
-     * @return array SQL predicate and named parameters.
+     * Aliases: q (question), qv (version), qbe (bank entry), qc (category), ctx (category context).
+     * Callers append further conditions with AND, and their own SELECT, GROUP BY and ORDER BY.
+     *
+     * @param string $scope Search scope: all, course or system.
+     * @param int $contextid Current context ID.
+     * @return array [FROM ... WHERE fragment, named parameters]
+     * @throws \invalid_parameter_exception For an unknown scope.
      */
-    public static function sql(string $scope, int $contextid): array {
+    public static function visible_query(string $scope, int $contextid): array {
         global $DB, $USER;
 
         if (!in_array($scope, ['all', 'course', 'system'], true)) {
@@ -61,7 +65,14 @@ final class question_visibility {
             $args += $params;
             $args['viewer'] = $user->id;
         }
-        return [$clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0', $args];
+        $visibility = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
+        $from = "FROM {question} q
+                   JOIN {question_versions} qv ON qv.questionid = q.id
+                   JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                   JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                   JOIN {context} ctx ON ctx.id = qc.contextid
+                  WHERE q.parent = 0 AND qv.status = 'ready' AND $visibility";
+        return [$from, $args];
     }
 
     /**
@@ -88,14 +99,10 @@ final class question_visibility {
         if (!$questionids) {
             return [];
         }
-        [$visibilitysql, $args] = self::sql('all', \context_system::instance()->id);
+        [$from, $args] = self::visible_query('all', \context_system::instance()->id);
         [$insql, $idargs] = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'questionid');
         $visible = $DB->get_fieldset_sql(
-            "SELECT q.id FROM {question} q
-               JOIN {question_versions} qv ON qv.questionid = q.id
-               JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-               JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-              WHERE q.id $insql AND q.parent = 0 AND qv.status = 'ready' AND $visibilitysql",
+            "SELECT q.id $from AND q.id $insql",
             $args + $idargs
         );
         return array_values(array_intersect($questionids, array_map('intval', $visible)));

@@ -59,14 +59,10 @@ final class question_export {
         if (!in_array($format, self::enabled_formats(), true)) {
             throw new \moodle_exception('exportformatdisabled', 'block_fragenfilter');
         }
-        [$visibilitysql, $args] = question_visibility::sql('all', $contextid);
+        [$from, $args] = question_visibility::visible_query('all', $contextid);
         [$insql, $idargs] = $DB->get_in_or_equal($ids, SQL_PARAMS_NAMED, 'exportid');
         $allowed = $DB->get_fieldset_sql(
-            "SELECT q.id FROM {question} q
-               JOIN {question_versions} qv ON qv.questionid = q.id
-               JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-               JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-              WHERE q.id $insql AND q.parent = 0 AND qv.status = 'ready' AND $visibilitysql",
+            "SELECT q.id $from AND q.id $insql",
             $args + $idargs
         );
         if (count($allowed) !== count($ids)) {

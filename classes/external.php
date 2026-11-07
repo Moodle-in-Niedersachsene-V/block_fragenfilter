@@ -179,21 +179,12 @@ class block_fragenfilter_external extends external_api {
         // Rate limit: at most RATE_LIMIT_REQUESTS per user within RATE_LIMIT_WINDOW seconds.
         self::check_rate_limit((int)$USER->id);
 
-        [$visibilitysql, $ctxargs] = \block_fragenfilter\question_visibility::sql($params['scope'], $context->id);
+        [$from, $queryargs] = \block_fragenfilter\question_visibility::visible_query($params['scope'], $context->id);
 
-        // Base query joining question and question_categories.
         $sql = "SELECT DISTINCT q.id, q.name, q.qtype, q.createdby,
                        qc.id AS categoryid, qc.name AS categoryname,
                        qc.contextid AS categorycontextid
-                  FROM {question} q
-                  JOIN {question_versions} qv ON qv.questionid = q.id
-                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                 WHERE q.parent = 0
-                   AND qv.status = 'ready'
-                   AND $visibilitysql";
-
-        $queryargs = $ctxargs;
+                  $from";
 
         // Free-text search: question title OR tags.
         if (!empty($params['search'])) {
@@ -328,16 +319,11 @@ class block_fragenfilter_external extends external_api {
         );
         $context = self::validate_search_context($params['contextid']);
 
-        [$visibilitysql, $ctxargs] = \block_fragenfilter\question_visibility::sql($params['scope'], $context->id);
+        [$from, $ctxargs] = \block_fragenfilter\question_visibility::visible_query($params['scope'], $context->id);
         $rows = $DB->get_records_sql(
             "SELECT qc.id, qc.name, qc.contextid, ctx.contextlevel,
                     ctx.instanceid, COUNT(q.id) AS questioncount
-               FROM {question_categories} qc
-               JOIN {context} ctx ON ctx.id = qc.contextid
-               JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-               JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-               JOIN {question} q ON q.id = qv.questionid
-              WHERE $visibilitysql AND q.parent = 0 AND qv.status = 'ready'
+               $from
            GROUP BY qc.id, qc.name, qc.contextid, ctx.contextlevel, ctx.instanceid
            ORDER BY qc.name",
             $ctxargs
@@ -432,16 +418,10 @@ class block_fragenfilter_external extends external_api {
             }
         } else {
             // Only types actually present in the question bank.
-            [$visibilitysql, $ctxargs] = \block_fragenfilter\question_visibility::sql($params['scope'], $context->id);
+            [$from, $ctxargs] = \block_fragenfilter\question_visibility::visible_query($params['scope'], $context->id);
             $rows = $DB->get_records_sql(
                 "SELECT DISTINCT q.qtype
-                   FROM {question} q
-                   JOIN {question_versions} qv       ON qv.questionid        = q.id
-                   JOIN {question_bank_entries} qbe   ON qbe.id              = qv.questionbankentryid
-                   JOIN {question_categories} qc      ON qc.id               = qbe.questioncategoryid
-                  WHERE $visibilitysql
-                    AND q.parent = 0
-                    AND qv.status = 'ready'
+                   $from
                ORDER BY q.qtype",
                 $ctxargs
             );

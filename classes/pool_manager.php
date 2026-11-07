@@ -106,7 +106,7 @@ class pool_manager {
             $user->lang         = get_string_manager()->translation_exists('de') ? 'de' : $CFG->lang;
             $user->timecreated  = time();
             $user->timemodified = time();
-            $user->description  = 'Automatisch angelegtes Pool-Konto für block_fragenfilter. Nicht löschen.';
+            $user->description  = get_string('pool_account_description', 'block_fragenfilter');
 
             user_create_user($user, false, false);
             $created++;
@@ -124,7 +124,7 @@ class pool_manager {
     public static function get_free_account(): ?\stdClass {
         global $DB;
 
-        $occupied = array_column(self::get_active_sessions(), 'userid');
+        $occupied = array_map('intval', array_column(self::get_active_sessions(), 'userid'));
         foreach (self::get_pool_usernames() as $username) {
             $user = $DB->get_record(
                 'user',
@@ -134,7 +134,7 @@ class pool_manager {
             );
             if (
                 $user && empty($user->suspended) && preview_role::is_pool_account($user)
-                    && !in_array((int)$user->id, array_map('intval', $occupied), true)
+                    && !in_array((int)$user->id, $occupied, true)
             ) {
                 return $user;
             }
@@ -154,14 +154,15 @@ class pool_manager {
         $factory = \core\lock\lock_config::get_lock_factory('block_fragenfilter_pool');
         $lock = $factory->get_lock('occupancy', 10);
         if (!$lock) {
-            throw new \moodle_exception('locktimeout', 'block_fragenfilter');
+            throw new \moodle_exception('error_pool_lock', 'block_fragenfilter');
         }
         try {
             $account = self::get_free_account();
             if (!$account) {
                 return null;
             }
-            // Destroy any lingering sessions of this pool account before logging in.
+            // Clear the previous visitor before reusing the account.
+            self::remove_course_enrolments((int)$account->id);
             \core\session\manager::destroy_user_sessions($account->id);
             complete_user_login(get_complete_user_data('id', $account->id));
             return $account;
@@ -206,7 +207,7 @@ class pool_manager {
      * POOL_ENROL_CATEGORY (or one of its sub-categories). Courses outside that
      * category are not touched — the preview simply won't open for them.
      *
-     * Uses the 'manual' enrol plugin with the student role. The enrolment is
+     * Uses the 'manual' enrol plugin with the dedicated bank-preview role. The enrolment is
      * time-limited to the session timeout so it expires automatically; the
      * cleanup_pool_sessions task also calls remove_course_enrolments() on
      * session end.
@@ -219,6 +220,10 @@ class pool_manager {
     public static function ensure_course_enrolment(int $userid, int $courseid): void {
         global $DB, $CFG;
 
+        $user = $DB->get_record('user', ['id' => $userid], '*', MUST_EXIST);
+        if (!preview_role::is_pool_account($user)) {
+            return;
+        }
         // Only enrol in courses that belong to the Aufgabenpool category tree.
         if (!self::course_in_pool_category($courseid)) {
             return;
@@ -231,12 +236,8 @@ class pool_manager {
             return;
         }
 
-        // Use the dedicated preview role; never grant teacher or editing rights.
-        $roleid = preview_role::ensure();
-        $coursecontext = \context_course::instance($courseid);
-        foreach (['moodle/course:view', 'moodle/course:viewhiddencourses', 'moodle/course:viewhiddenactivities'] as $capability) {
-            assign_capability($capability, CAP_ALLOW, $roleid, $coursecontext->id, true);
-        }
+        // Core enrolment grants bank access only to this account in this course.
+        $roleid = preview_role::ensure_bank_role();
 
         // Find or create the manual enrol instance for this course.
         $instance = $DB->get_record(
@@ -271,7 +272,7 @@ class pool_manager {
             );
             if ($hasrole) {
                 // Role is correct — only refresh the enrolment timeend.
-                $DB->set_field('user_enrolments', 'timeend', $timeend, ['id' => $existing->id]);
+                $enrol->update_user_enrol($instance, $userid, null, null, $timeend);
                 return;
             }
             // Wrong role (e.g. still enrolled as student from an earlier build):

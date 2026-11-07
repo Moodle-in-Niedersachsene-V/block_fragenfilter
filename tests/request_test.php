@@ -681,6 +681,18 @@ final class request_test extends \advanced_testcase {
         $this->assertStringContainsString(fullname($user), $body);
     }
 
+    public function test_pool_account_stays_on_the_frontpage_when_the_dashboard_is_the_site_default(): void {
+        $question = $this->create_question();
+        set_config('defaulthomepage', HOMEPAGE_MY);
+        $key = $this->visitor_sesskey();
+        $this->preview_request(['qid' => $question->id, 'sesskey' => $key], true);
+
+        $body = $this->preview_request([], false, '/');
+        $this->assertSame('', $this->redirecturl);
+        $this->assertStringContainsString('"sesskey":', $body);
+        $this->assertSame((string)HOMEPAGE_MY, get_config('core', 'defaulthomepage'));
+    }
+
     public function test_preview_of_a_question_the_visitor_cannot_see_takes_no_pool_account(): void {
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');

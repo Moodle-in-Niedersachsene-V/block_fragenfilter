@@ -1,7 +1,7 @@
 # Integration von Friedhelms Stand und Spec #20
 
 Analyse vom 07.11.2026. Remote-Referenzen wurden vor dem Vergleich aktualisiert.
-Dieser Bericht dokumentiert zunächst die Analyse. Die anschließende Umsetzung folgt dem aktuellen Integrationsnachweis im Fallplan (I1); die folgenden Ausgangsbefunde beziehen sich auf die ursprünglichen Branch-Stände.
+Dieser Bericht dokumentiert zunächst die Analyse. Die anschließende Umsetzung folgt dem aktuellen Integrationsnachweis im [abschließenden Prüfbericht](checks/fragenfilter-integration-2026-11-07.md) und Fallplan (I2); die folgenden Ausgangsbefunde beziehen sich auf die ursprünglichen Branch-Stände.
 
 ## Verbindliches Ziel
 

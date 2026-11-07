@@ -36,7 +36,7 @@ Keine gemeinsam genutzte Installation, Datenbank oder laufende Instanz verwenden
    php public/admin/tool/phpunit/cli/init.php
    ```
 
-   Dies installiert auch beide Plugins in den PHPUnit-Tabellen und erzeugt `phpunit.xml`. Nach Plugin- oder Versionsänderungen erneut ausführen. Während Initialisierung und Testlauf darf kein anderer Test dieselbe Datenbank verwenden.
+   Dies installiert den Fragenfilter in den PHPUnit-Tabellen und erzeugt `phpunit.xml`. Nach Plugin- oder Versionsänderungen erneut ausführen. Während Initialisierung und Testlauf darf kein anderer Test dieselbe Datenbank verwenden.
    Den strengen CI-Nachinstallationsschritt bei Änderungen an Bootstrap/Hooks zusätzlich ausführen:
 
    ```bash
@@ -235,3 +235,15 @@ git archive --format=zip --prefix=fragenfilter/ -o /tmp/block_fragenfilter_<buil
 ```
 
 Installationsnachweis in einer frischen, isolierten Moodle-Instanz (eigene Datenbank, eigenes Datenverzeichnis, `block_kursfilter` von `main`): Zip nach `public/blocks/` entpacken, `admin/cli/install_database.php`, danach `admin/cli/upgrade.php` ohne Fehler und `core_plugin_manager` meldet `block_fragenfilter` mit der Build-Nummer.
+
+## Eigener Pool und Browser-E2E (Integration 07.11.2026)
+
+Der aktuelle [Prüfbericht](../checks/fragenfilter-integration-2026-11-07.md) enthält
+die ausgeführten Befehle, Fixture-IDs, acht Browser-Szenarien und deren Grenzen.
+`tests/e2e/seed.php` benötigt explizit `FRAGENFILTER_E2E_SETUP=1` und ist nur für
+eine dedizierte Testinstanz bestimmt. `tests/e2e/fragenfilter.cjs` verwendet eine
+vorhandene Playwright-Testumgebung und die ausgegebene Fixture-JSON; keine
+Moodle-Laufzeitabhängigkeit. Die Standalone-Suite wurde frisch ohne Kursfilter
+installiert, die echte Spike-E2E prüft zusätzlich die Koexistenz. Historische
+Kursfilter-IP-Sperrtests sind durch den ausdrücklich erlaubten zweiten Besucher
+derselben Adresse ersetzt.

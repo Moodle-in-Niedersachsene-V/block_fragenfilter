@@ -44,6 +44,9 @@ class hook_callbacks {
             return;
         }
 
+        // Pool visitors return to the public search, even when the site defaults to the dashboard.
+        $CFG->defaulthomepage = HOMEPAGE_SITE;
+
         // Suppress messaging icon for this session.
         $CFG->messaging = false;
 

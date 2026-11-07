@@ -37,7 +37,8 @@
  * @param bool $forcedownload Whether to force the download.
  * @param array $options Additional file serving options.
  * @return void
- */
+ * Login is checked here; visitor_access::may_export() owns capability and guest exclusion.
+ * nosemgrep: moodle-pluginfile-ohne-pruefung */
 function block_fragenfilter_pluginfile(
     $course,
     $cm,

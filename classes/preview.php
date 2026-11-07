@@ -53,13 +53,6 @@ final class preview {
             preview_role::assign_to_pool_account($USER);
             $courseid = (int)$DB->get_field('course_modules', 'course', ['id' => $cmid], MUST_EXIST);
             pool_manager::ensure_course_enrolment((int)$USER->id, $courseid);
-            assign_capability(
-                'moodle/question:useall',
-                CAP_ALLOW,
-                preview_role::ensure(),
-                \context_module::instance($cmid)->id,
-                true
-            );
         }
         return [
             'url' => new \moodle_url('/question/bank/previewquestion/preview.php', ['id' => $questionid, 'cmid' => $cmid]),

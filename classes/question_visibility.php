@@ -95,7 +95,8 @@ final class question_visibility {
         $user = isloggedin() ? $USER : guest_user();
         $all = [];
         $mine = [];
-        foreach (self::contextids($scope, $contextid) as $id) {
+        $contextids = self::contextids($scope, $contextid);
+        foreach ($contextids as $id) {
             $context = \context::instance_by_id($id);
             if (has_capability('moodle/question:viewall', $context, $user)) {
                 $all[] = $id;
@@ -117,8 +118,12 @@ final class question_visibility {
             $args['viewer'] = $user->id;
         }
         if (isguestuser($user) || !isloggedin() || preview_role::is_pool_account($user)) {
-            $clauses = ['1 = 1'];
+            $clauses = ['1 = 0'];
             $args = [];
+            if ($contextids) {
+                [$insql, $args] = $DB->get_in_or_equal($contextids, SQL_PARAMS_NAMED, 'publicctx');
+                $clauses = ["qc.contextid $insql"];
+            }
         }
         [$poolsql, $poolargs] = self::pool_category_sql();
         $args += $poolargs;

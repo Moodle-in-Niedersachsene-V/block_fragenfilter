@@ -64,6 +64,34 @@ final class preview_role {
     }
 
     /**
+     * Role assigned only by temporary enrolment in the published bank's course.
+     *
+     * @return int Role ID.
+     */
+    public static function ensure_bank_role(): int {
+        global $DB;
+        $shortname = self::SHORTNAME . '_bank';
+        $roleid = $DB->get_field('role', 'id', ['shortname' => $shortname]);
+        if ($roleid) {
+            return (int)$roleid;
+        }
+        $roleid = create_role(
+            get_string('role_preview_bank_name', 'block_fragenfilter'),
+            $shortname,
+            get_string('role_preview_bank_desc', 'block_fragenfilter'),
+            ''
+        );
+        set_role_contextlevels($roleid, [CONTEXT_COURSE]);
+        $capabilities = [
+            'mod/qbank:view', 'moodle/question:useall', 'moodle/course:viewhiddencourses', 'moodle/course:viewhiddenactivities',
+        ];
+        foreach ($capabilities as $capability) {
+            assign_capability($capability, CAP_ALLOW, $roleid, \context_system::instance()->id, true);
+        }
+        return (int)$roleid;
+    }
+
+    /**
      * Whether the account is any pool account recognised by block_fragenfilter.
      *
      * Accepts only canonical fragenfilter_pool account names.

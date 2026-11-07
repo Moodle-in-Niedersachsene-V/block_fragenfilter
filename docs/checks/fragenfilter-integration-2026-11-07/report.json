@@ -1,0 +1,40 @@
+{
+  "url": "https://spike.gruenwald.fun/",
+  "token": "QFE2E20261107",
+  "cases": [
+    {
+      "name": "Public central search: two published questions, no export and no injected attributes",
+      "status": "passed"
+    },
+    {
+      "name": "Private question ID cannot log an anonymous visitor into a pool account",
+      "status": "passed"
+    },
+    {
+      "name": "Guest preview opens real core question with cmid; filter and selection survive pool login",
+      "status": "passed"
+    },
+    {
+      "name": "A second preview works in the existing pool session",
+      "status": "passed"
+    },
+    {
+      "name": "XML, CSV and GIFT downloads contain the selected published question",
+      "status": "passed"
+    },
+    {
+      "name": "Browser rating is cookie-bound, HttpOnly and Secure; repeated rating keeps first stars",
+      "status": "passed"
+    },
+    {
+      "name": "Pool account is kept off profile/password pages; private-ID export is rejected",
+      "status": "passed"
+    },
+    {
+      "name": "Another browser behind the same address receives a working independent pool session",
+      "status": "passed"
+    }
+  ],
+  "pageErrors": [],
+  "status": "passed"
+}

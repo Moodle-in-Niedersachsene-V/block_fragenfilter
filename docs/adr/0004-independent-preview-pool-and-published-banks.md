@@ -26,8 +26,10 @@ sowie die Implementierungsabhängigkeit des Bewertungs-Cookies aus ADR 0003.
   Vorschau, Export und Bewertungen. Die automatische Verschlagwortung verwendet
   dieselbe Aufgabenpool-Grenze.
 - Die Vorschau löst die Fragebank-`cmid` auf und schreibt eigene Pool-Konten
-  vorübergehend mit der Vorschaurolle in den Zielkurs ein. Frage-Nutzungsrechte
-  werden auf die Ziel-Fragebank begrenzt; keine Trainer-/Bearbeiterrolle.
+  vorübergehend mit einer eigenen Fragebankrolle in den Zielkurs ein. Diese Rolle
+  wird nur durch die Einschreibung vergeben, nicht systemweit. Die systemweite
+  Vorschaurolle erlaubt nur Blockzugang und Export; keine Trainer-/Bearbeiterrolle
+  und kein einschreibungsunabhängiges `moodle/course:view`.
 - Bestehende echte Anmeldungen bleiben erhalten. Pool-Anmeldung benötigt POST und
   Sesskey; Export verlangt Anmeldung und Exportrecht.
 - Bewertungen behalten das bestehende Cookie `kf_rater_id` und sein Format,

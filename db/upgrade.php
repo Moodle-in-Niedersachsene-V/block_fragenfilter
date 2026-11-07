@@ -285,14 +285,7 @@ function xmldb_block_fragenfilter_upgrade(int $oldversion): bool {
     if ($oldversion < 2026102207) {
         $role = $DB->get_record('role', ['shortname' => 'fragenfilter_preview']);
         if ($role) {
-            // Remove existing context-level entries for this role and write the full set.
-            $DB->delete_records('role_context_levels', ['roleid' => $role->id]);
-            foreach ([CONTEXT_SYSTEM, CONTEXT_MODULE] as $contextlevel) {
-                $record = new \stdClass();
-                $record->roleid       = $role->id;
-                $record->contextlevel = $contextlevel;
-                $DB->insert_record('role_context_levels', $record, false, true);
-            }
+            set_role_contextlevels($role->id, [CONTEXT_SYSTEM, CONTEXT_MODULE]);
         }
         upgrade_block_savepoint(true, 2026102207, 'fragenfilter');
     }
@@ -328,6 +321,29 @@ function xmldb_block_fragenfilter_upgrade(int $oldversion): bool {
         assign_capability('block/fragenfilter:export', CAP_ALLOW, $roleid, $systemcontext->id, true);
         \block_fragenfilter\preview_role::assign_to_pool_accounts();
         upgrade_block_savepoint(true, 2026110704, 'fragenfilter');
+    }
+
+    // Separate temporary question-bank rights from the system export role.
+    if ($oldversion < 2026110705) {
+        $roleid = \block_fragenfilter\preview_role::ensure();
+        $capabilities = [
+            'moodle/question:usemine', 'moodle/question:useall', 'moodle/question:viewmine',
+            'moodle/course:view', 'moodle/course:viewhiddencourses', 'moodle/course:viewhiddenactivities',
+        ];
+        foreach ($DB->get_records('role_capabilities', ['roleid' => $roleid]) as $override) {
+            if (in_array($override->capability, $capabilities, true)) {
+                unassign_capability($override->capability, $roleid, $override->contextid);
+            }
+        }
+        \block_fragenfilter\preview_role::ensure_bank_role();
+        upgrade_block_savepoint(true, 2026110705, 'fragenfilter');
+    }
+
+    // Core require_login() checks qbank visibility before showing the preview.
+    if ($oldversion < 2026110707) {
+        $roleid = \block_fragenfilter\preview_role::ensure_bank_role();
+        assign_capability('mod/qbank:view', CAP_ALLOW, $roleid, context_system::instance()->id, true);
+        upgrade_block_savepoint(true, 2026110707, 'fragenfilter');
     }
 
     return true;

@@ -30,6 +30,7 @@ final class tag_suggestion_test extends \advanced_testcase {
     /**
      * Creates a question in a fresh category and returns its id.
      *
+     * @param string $name Question name.
      * @return int Question id.
      */
     private function create_question(string $name = 'Frage'): int {

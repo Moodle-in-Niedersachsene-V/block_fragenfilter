@@ -190,9 +190,17 @@ final class question_visibility_test extends \advanced_testcase {
         $bank = $this->getDataGenerator()->create_module('qbank', ['course' => $course->id]);
         $inside = $this->make_question(\context_module::instance($bank->cmid), 2, 'Published');
         $outside = $this->make_question(\context_system::instance(), 2, 'Private');
+        $othercourse = $this->getDataGenerator()->create_course(['category' => $child->id]);
+        $otherbank = $this->getDataGenerator()->create_module('qbank', ['course' => $othercourse->id]);
+        $other = $this->make_question(\context_module::instance($otherbank->cmid), 2, 'Other course');
         $this->setGuestUser();
 
-        $this->assertSame([(int)$inside->id], $this->visible_in_scope('all', \context_system::instance()));
+        $this->assertEqualsCanonicalizing(
+            [(int)$inside->id, (int)$other->id],
+            $this->visible_in_scope('all', \context_system::instance())
+        );
+        $this->assertSame([], $this->visible_in_scope('system', \context_system::instance()));
+        $this->assertSame([(int)$inside->id], $this->visible_in_scope('course', \context_course::instance($course->id)));
         $this->assertTrue(question_visibility::is_visible((int)$inside->id));
         $this->assertFalse(question_visibility::is_visible((int)$outside->id));
     }

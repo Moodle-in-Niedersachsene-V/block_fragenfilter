@@ -28,6 +28,14 @@ final class search_filters {
      * Holds the validated search filters.
      *
      * Free text is matched against question name and tag names. Empty lists mean "no restriction".
+     *
+     * @param string $text Free-text term.
+     * @param int[] $categoryids Question category IDs.
+     * @param string[] $types Question type names.
+     * @param string $difficulty Difficulty tag.
+     * @param string[] $tags Required tag names.
+     * @param string $scope Search scope.
+     * @param int $limit Maximum number of results.
      */
     public function __construct(
         /** @var string Free-text term. */

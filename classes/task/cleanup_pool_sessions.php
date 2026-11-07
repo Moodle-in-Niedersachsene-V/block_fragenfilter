@@ -49,6 +49,23 @@ class cleanup_pool_sessions extends \core\task\scheduled_task {
     public function execute(): void {
         global $DB, $CFG;
 
+        $factory = \core\lock\lock_config::get_lock_factory('block_fragenfilter_pool');
+        $lock = $factory->get_lock('occupancy', 10);
+        if (!$lock) {
+            throw new \moodle_exception('error_pool_lock', 'block_fragenfilter');
+        }
+        try {
+            $this->cleanup_idle_accounts();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Rechecks idle accounts while holding the same lock as pool occupancy.
+     */
+    private function cleanup_idle_accounts(): void {
+        global $DB, $CFG;
         $usernames  = \block_fragenfilter\pool_manager::get_pool_usernames(
             \block_fragenfilter\pool_manager::POOL_SIZE_MAX
         );
@@ -59,11 +76,15 @@ class cleanup_pool_sessions extends \core\task\scheduled_task {
         [$insql, $params] = $DB->get_in_or_equal($usernames, SQL_PARAMS_NAMED);
         // Sessions that have been idle longer than the timeout are considered abandoned.
         $params['cutoff'] = time() - $CFG->sessiontimeout;
+        $params['activecutoff'] = $params['cutoff'];
         $idle = $DB->get_records_sql(
             "SELECT s.id, s.userid, u.username
                FROM {sessions} s
                JOIN {user} u ON u.id = s.userid
-              WHERE u.username $insql AND u.deleted = 0 AND s.timemodified < :cutoff",
+              WHERE u.username $insql AND u.deleted = 0 AND u.auth = 'manual' AND u.confirmed = 1
+                AND s.timemodified < :cutoff
+                AND NOT EXISTS (SELECT 1 FROM {sessions} active
+                                 WHERE active.userid = u.id AND active.timemodified >= :activecutoff)",
             $params
         );
 

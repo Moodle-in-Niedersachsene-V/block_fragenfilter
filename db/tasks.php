@@ -15,9 +15,9 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Scheduled task definitions for block_questionfilter.
+ * Scheduled task definitions for block_fragenfilter.
  *
- * @package    block_questionfilter
+ * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
  * @author     Moodle in Niedersachsen e. V.
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -26,10 +26,23 @@
 defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
-    // KI-Verschlagwortung fuer Fragen ohne Tag-Vorschlag, taeglich 03:00 Uhr.
-    // Standardmaessig deaktiviert – muss in den Einstellungen aktiviert werden.
+    // Destroy idle fragenfilter pool-account sessions so pool slots are freed
+    // even when guests close the browser tab without clicking "Abmelden".
+    // Runs every 15 minutes; Moodle's own session GC complements this.
     [
-        'classname' => '\block_questionfilter\task\generate_tags',
+        'classname' => '\block_fragenfilter\task\cleanup_pool_sessions',
+        'blocking'  => 0,
+        'minute'    => '*/15',
+        'hour'      => '*',
+        'day'       => '*',
+        'month'     => '*',
+        'dayofweek' => '*',
+        'disabled'  => 0,
+    ],
+    // AI tagging for questions without a tag suggestion, daily at 03:00.
+    // Disabled by default; must be enabled in the settings.
+    [
+        'classname' => '\block_fragenfilter\task\generate_tags',
         'blocking'  => 0,
         'minute'    => '0',
         'hour'      => '3',

@@ -1,9 +1,9 @@
-// AMD-Modul des Fragebank-Filters (block_questionfilter).
+// AMD module for the question bank filter (block_fragenfilter).
 define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     'use strict';
 
-    // Fragetypen werden dynamisch geladen — diese Map dient nur als
-    // Anzeigenamen-Fallback falls get_questiontypes keinen Treffer liefert
+    // Question types are loaded dynamically; this map only provides
+    // fallback display names if get_questiontypes returns no match.
     var QTYPE_FALLBACK = {
         multichoice: 'Multiple Choice', truefalse: 'Wahr/Falsch',
         shortanswer: 'Kurzantwort', numerical: 'Numerisch',
@@ -23,10 +23,10 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     };
 
     /**
-     * Zustandsobjekt einer Blockinstanz.
+     * State object for a block instance.
      *
-     * @param {Number} blockid ID der Blockinstanz.
-     * @param {Object} config Konfiguration aus PHP.
+     * @param {Number} blockid Block instance ID.
+     * @param {Object} config Configuration from PHP.
      */
     function BlockState(blockid, config) {
         this.blockid = blockid;
@@ -39,12 +39,13 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         this.selected = {};
         this.results = [];
         this.allCats = [];
-        this.loadedQtypes = []; // [{key, label}] — dynamisch aus DB.
+        this.loadedQtypes = []; // [{key, label}] — loaded dynamically from the DB.
         this.panelOpen = false;
         this.panelQuery = '';
         this.debounce = null;
+        this.requestseq = 0; // Counts searches so late responses after a reset are ignored.
+        this.initialresults = ''; // Start-state markup of the result list, restored by reset.
         this.ratings = {}; // {qid: {average, count, myrating}}.
-        this.sessionHash = getSessionHash();
     }
 
     BlockState.prototype.el = function(id) {
@@ -58,10 +59,13 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     BlockState.prototype.init = function() {
         var self = this;
 
-        // Fragetypen dynamisch laden statt hart kodiert
+        // Load question types dynamically instead of hard-coding them.
         self.loadQuestionTypes();
 
-        // Diff-Chips
+        var resultsEl = self.el('results');
+        self.initialresults = resultsEl ? resultsEl.innerHTML : '';
+
+        // Difficulty chips.
         self.block().querySelectorAll('.qf-chip-diff').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var v = this.dataset.value;
@@ -76,7 +80,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         });
 
-        // Kombiniertes Suchfeld
+        // Combined search field.
         var searchEl = self.el('search');
         if (searchEl) {
             searchEl.addEventListener('input', function() {
@@ -95,7 +99,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         }
 
-        // Dropdown-Toggle
+        // Dropdown toggle.
         var toggleBtn = self.el('cat-toggle');
         if (toggleBtn) {
             toggleBtn.addEventListener('click', function(e) {
@@ -104,7 +108,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         }
 
-        // Eingabefeld im Dropdown-Header öffnet Panel
+        // The input in the dropdown header opens the panel.
         var filterInput = self.el('cat-filter');
         if (filterInput) {
             filterInput.addEventListener('click', function(e) {
@@ -115,7 +119,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         }
 
-        // Suchfeld im Panel
+        // Search field in the panel.
         var panelSearch = self.el('cat-search');
         if (panelSearch) {
             panelSearch.addEventListener('input', function() {
@@ -127,7 +131,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         }
 
-        // Alle / Keine
+        // All / None.
         var wrap = self.el('catdrop-wrap');
         if (wrap) {
             var selAll = wrap.querySelector('.qf-cat-sel-all');
@@ -156,7 +160,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             }
         }
 
-        // X-Button: Auswahl aufheben
+        // Clear the selection with the X button.
         var clearBtn = self.el('cat-clear');
         if (clearBtn) {
             clearBtn.addEventListener('click', function(e) {
@@ -168,7 +172,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         }
 
-        // Klick außerhalb → Panel schließen
+        // Close the panel on clicks outside it.
         document.addEventListener('click', function(e) {
             if (self.panelOpen) {
                 var wrap = self.el('catdrop-wrap');
@@ -178,7 +182,15 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             }
         });
 
-        // Alle wählen (Ergebnisse).
+        // Reset all filters and the result list to the start state.
+        var resetBtn = self.block().querySelector('.qf-reset');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function() {
+                self.reset();
+            });
+        }
+
+        // Select all results.
         var selAllResults = self.block().querySelector('.qf-select-all');
         if (selAllResults) {
             selAllResults.addEventListener('click', function() {
@@ -201,8 +213,8 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
 
         self.loadCategories();
 
-        // Capabilities per AJAX pruefen — wichtig nach Pool-Login damit
-        // Export-Buttons korrekt angezeigt werden ohne Seiten-Reload.
+        // Check capabilities via AJAX after pool login so export buttons
+        // appear correctly without reloading the page.
         self.refreshCapabilities();
 
         self.initPoolLoginListener();
@@ -210,8 +222,8 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     };
 
     /**
-     * Registriert den postMessage-Listener fuer Pool-Login-Benachrichtigungen.
-     * Pool-Login-Tab sendet 'qf_pool_login_done' nach erfolgreichem Login.
+     * Registers the postMessage listener for pool login notifications.
+     * The pool login tab sends 'qf_pool_login_done' after a successful login.
      */
     BlockState.prototype.initPoolLoginListener = function() {
         var self = this;
@@ -221,18 +233,21 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 return;
             }
             if (event.data && event.data.type === 'qf_pool_login_done') {
+                // Pool login is now complete in the popup. The main page still
+                // runs under the guest session and needs to adopt the new
+                // session cookie. We reload so that Moodle picks up the pool
+                // account's session — but only after saving the current filter
+                // state so restoreSelectionAfterReload() can rebuild the view.
+                //
+                // If the state was already saved by openPreview() (guest path)
+                // it is still there and the reload will restore it.
+                // If for any reason it was not saved (e.g. a second preview
+                // click before the first reload), save it now.
                 try {
-                    sessionStorage.setItem(
-                        'qf_restore_selection_' + self.blockid,
-                        JSON.stringify({
-                            ids: Object.keys(self.selected),
-                            search: self.search,
-                            cats: self.cats,
-                            types: self.types,
-                            diffs: self.diffs,
-                            tags: self.tags,
-                        })
-                    );
+                    var restoreKey = 'qf_restore_selection_' + self.blockid;
+                    if (!sessionStorage.getItem(restoreKey)) {
+                        self.saveStateForReload();
+                    }
                 } catch (e) { /* Ignore storage errors. */ }
                 window.location.reload();
             }
@@ -240,50 +255,72 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     };
 
     /**
-     * Stellt Auswahl und Suchzustand nach Pool-Login-Reload wieder her.
+     * Restores selection and search state after a pool login reload.
      */
     BlockState.prototype.restoreSelectionAfterReload = function() {
         var self = this;
         try {
             var restoreKey = 'qf_restore_selection_' + self.blockid;
             var stored = sessionStorage.getItem(restoreKey);
-            if (stored) {
-                sessionStorage.removeItem(restoreKey);
-                var snap = JSON.parse(stored);
-                if (snap && Array.isArray(snap.ids) && snap.ids.length) {
-                    self.search = snap.search || '';
-                    self.cats = snap.cats || {};
-                    self.types = snap.types || {};
-                    self.diffs = snap.diffs || {};
-                    self.tags = snap.tags || [];
-                    snap.ids.forEach(function(id) {
-                        self.selected[String(id)] = true;
-                    });
-                    self.updateFooter();
-                    self.triggerSearch();
-                }
+            if (!stored) {
+                return;
             }
+            sessionStorage.removeItem(restoreKey);
+            var snap = JSON.parse(stored);
+            if (!snap) {
+                return;
+            }
+
+            // Restore all filter state, not just selected IDs.
+            self.search = snap.search || '';
+            self.cats = snap.cats || {};
+            self.types = snap.types || {};
+            self.diffs = snap.diffs || {};
+            self.tags = snap.tags || [];
+            if (Array.isArray(snap.ids)) {
+                snap.ids.forEach(function(id) {
+                    self.selected[String(id)] = true;
+                });
+            }
+
+            // Reflect search text back in the DOM.
+            var searchEl = self.el('search');
+            if (searchEl && self.search) {
+                searchEl.value = self.search;
+            }
+
+            // Reflect active difficulty chips.
+            self.block().querySelectorAll('.qf-chip-diff').forEach(function(btn) {
+                if (self.diffs[btn.dataset.value]) {
+                    btn.classList.add('qf-chip-active');
+                }
+            });
+
+            // Re-render tag chips and trigger a new search.
+            self.renderTagChips();
+            self.updateCatInput();
+            self.triggerSearch();
         } catch (e) { /* Ignore storage errors. */ }
     };
 
     /**
-     * Fragt die aktuellen Nutzer-Capabilities per AJAX ab und aktualisiert
-     * Export-Buttons und isloggedin-Flag. Wird beim Init aufgerufen.
+     * Fetches the current user's capabilities via AJAX and updates
+     * the export buttons and isloggedin flag. Called during init.
      */
     BlockState.prototype.refreshCapabilities = function() {
         var self = this;
         Ajax.call([{
-            methodname: 'block_questionfilter_check_capabilities',
+            methodname: 'block_fragenfilter_check_capabilities',
             args: {contextid: self.config.contextid || 1},
             done: function(result) {
                 self.config.canexport = result.canexport;
                 self.config.isloggedin = result.isloggedin;
-                // Export-Formate vom Server verwenden (korrekt aufgelöst).
-                var fmtStr = result.exportformats || self.config.exportformats || 'xml,csv,gift';
+                // Use the export formats resolved by the server.
+                var fmtStr = result.exportformats;
                 var formats = fmtStr.split(',').map(function(s) {
                     return s.trim();
                 });
-                // Export-Buttons einblenden wenn Capability vorhanden.
+                // Show export buttons when the capability is granted.
                 self.block().querySelectorAll('.qf-export').forEach(function(btn) {
                     var fmt = btn.dataset.format;
                     var allowed = result.canexport && formats.indexOf(fmt) !== -1;
@@ -296,12 +333,12 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 }
             },
             fail: function() {
-                // Stille Fehlerbehandlung — Buttons bleiben verborgen.
+                // Silently handle errors; buttons remain hidden.
             },
         }]);
     };
 
-    // Dropdown Panel
+    // Dropdown panel.
     BlockState.prototype.openPanel = function() {
         var self = this;
         var panel = self.el('cat-panel');
@@ -314,7 +351,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         if (icon) {
             icon.innerHTML = '<i class="fa fa-chevron-up" style="font-size:11px"></i>';
         }
-        // Suchfeld fokussieren
+        // Focus the search field.
         var ps = self.el('cat-search');
         if (ps) {
             setTimeout(function() {
@@ -345,7 +382,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         }
     };
 
-    // Fragetypen dynamisch laden
+    // Load question types dynamically.
     BlockState.prototype.loadQuestionTypes = function() {
         var self = this;
         var wrap = self.el('type-chips');
@@ -354,7 +391,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         }
 
         Ajax.call([{
-            methodname: 'block_questionfilter_get_questiontypes',
+            methodname: 'block_fragenfilter_get_questiontypes',
             args: {
                 scope: self.config.searchscope || 'all',
                 contextid: self.config.contextid || 1,
@@ -365,7 +402,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 self.renderTypeChips();
             },
             fail: function() {
-                // Fallback: bekannte Typen aus QTYPE_FALLBACK
+                // Fallback: known types from QTYPE_FALLBACK.
                 self.loadedQtypes = Object.keys(QTYPE_FALLBACK).map(function(k) {
                     return {key: k, label: QTYPE_FALLBACK[k]};
                 });
@@ -374,12 +411,12 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         }]);
     };
 
-    // Kategorien
+    // Categories.
     BlockState.prototype.loadCategories = function() {
         var self = this;
         var filterEl = self.el('cat-filter');
         Ajax.call([{
-            methodname: 'block_questionfilter_get_categories',
+            methodname: 'block_fragenfilter_get_categories',
             args: {scope: self.config.searchscope || 'all', contextid: self.config.contextid || 1},
             done: function(result) {
                 self.allCats = result.categories || [];
@@ -398,7 +435,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         }]);
     };
 
-    // Gefilterte Liste (nach panelQuery)
+    // Filtered list (by panelQuery).
     BlockState.prototype.filteredCats = function() {
         var q = this.panelQuery;
         if (!q) {
@@ -410,7 +447,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         });
     };
 
-    // Zeigt gewählte Sammlungen im Eingabefeld an
+    // Show selected question banks in the input field.
     BlockState.prototype.updateCatInput = function() {
         var self = this;
         var filterEl = self.el('cat-filter');
@@ -443,7 +480,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         }
     };
 
-    // Liste im Dropdown rendern
+    // Render the dropdown list.
     BlockState.prototype.renderPanelList = function() {
         var self = this;
         var list = self.el('cat-list');
@@ -458,7 +495,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             return;
         }
 
-        // Gruppierung nach contextlabel
+        // Group by contextlabel.
         var groups = {};
         var order = [];
         cats.forEach(function(c) {
@@ -472,7 +509,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
 
         var html = '';
         order.forEach(function(lbl) {
-            // Gruppenheader
+            // Group header.
             html += '<div style="padding:4px 10px 2px;font-size:10px;color:#6c757d;'
                   + 'font-weight:600;text-transform:uppercase;letter-spacing:.04em;'
                   + 'border-top:1px solid #f0f0f0;margin-top:2px">'
@@ -496,7 +533,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
 
         list.innerHTML = html;
 
-        // Checkbox-Handler
+        // Checkbox handler.
         list.querySelectorAll('.qf-cat-chk').forEach(function(chk) {
             chk.addEventListener('change', function(e) {
                 e.stopPropagation();
@@ -506,7 +543,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 } else {
                     delete self.cats[id];
                 }
-                // Zeile hervorheben
+                // Highlight the row.
                 var row = this.closest('.qf-cat-row');
                 if (row) {
                     row.classList.toggle('qf-cat-row-active', !!this.checked);
@@ -517,7 +554,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         });
     };
 
-    // Suchfeld parsen
+    // Parse the search field.
     BlockState.prototype.parseSearchInput = function(val) {
         var self = this;
         var plain = val.trim();
@@ -534,7 +571,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         self.triggerSearch();
     };
 
-    // Fragetyp-Chips
+    // Question type chips.
     BlockState.prototype.renderTypeChips = function() {
         var self = this;
         var wrap = self.el('type-chips');
@@ -606,7 +643,60 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         });
     };
 
-    // Suche
+    /**
+     * Clears search text, tags, collections, types, difficulty levels, selection
+     * and results, and drops any pending or running search.
+     */
+    BlockState.prototype.reset = function() {
+        var self = this;
+        clearTimeout(self.debounce);
+        self.requestseq++;
+        self.search = '';
+        self.cats = {};
+        self.types = {};
+        self.diffs = {};
+        self.tags = [];
+        self.selected = {};
+        self.results = [];
+        self.ratings = {};
+        self.panelQuery = '';
+
+        var searchEl = self.el('search');
+        if (searchEl) {
+            searchEl.value = '';
+        }
+        var hint = self.el('search-hint');
+        if (hint) {
+            hint.style.display = 'none';
+        }
+        var panelSearch = self.el('cat-search');
+        if (panelSearch) {
+            panelSearch.value = '';
+        }
+        self.block().querySelectorAll('.qf-chip-diff').forEach(function(btn) {
+            btn.classList.remove('qf-chip-active');
+        });
+        var spinner = self.el('spinner');
+        if (spinner) {
+            spinner.classList.add('d-none');
+        }
+        self.renderTagChips();
+        self.renderTypeChips();
+        self.renderPanelList();
+        self.updateCatInput();
+
+        var list = self.el('results');
+        if (list) {
+            list.innerHTML = self.initialresults;
+        }
+        var count = self.el('count');
+        if (count) {
+            count.textContent = '–';
+        }
+        self.updateFooter();
+    };
+
+    // Search.
     BlockState.prototype.triggerSearch = function() {
         var self = this;
         clearTimeout(self.debounce);
@@ -617,13 +707,14 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
 
     BlockState.prototype.runSearch = function() {
         var self = this;
+        var seq = ++self.requestseq;
         var spinner = self.el('spinner');
         if (spinner) {
             spinner.classList.remove('d-none');
         }
 
         Ajax.call([{
-            methodname: 'block_questionfilter_search_questions',
+            methodname: 'block_fragenfilter_search_questions',
             args: {
                 search: self.search,
                 categories: Object.keys(self.cats).join(','),
@@ -635,6 +726,9 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 limit: 200,
             },
             done: function(result) {
+                if (seq !== self.requestseq) {
+                    return;
+                }
                 if (spinner) {
                     spinner.classList.add('d-none');
                 }
@@ -650,7 +744,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 });
                 self.renderResults();
                 self.updateFooter();
-                // Bewertungen nachladen.
+                // Load ratings.
                 if (self.results.length) {
                     self.loadRatings(self.results.map(function(q) {
                         return q.id;
@@ -658,6 +752,9 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 }
             },
             fail: function(err) {
+                if (seq !== self.requestseq) {
+                    return;
+                }
                 if (spinner) {
                     spinner.classList.add('d-none');
                 }
@@ -670,7 +767,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         }]);
     };
 
-    // Ergebnisliste
+    // Result list.
     BlockState.prototype.renderResults = function() {
         var self = this;
         var wrap = self.el('results');
@@ -709,7 +806,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                  + '<input type="checkbox" class="form-check-input mt-1 flex-shrink-0 qf-chk"'
                  + (sel ? ' checked' : '') + ' data-qid="' + q.id + '">'
                  + '<div style="min-width:0;flex:1">'
-                 // Titelzeile mit Vorschau-Button — Button immer sichtbar
+                 // Title row with preview button, which is always visible.
                  + '<div class="d-flex align-items-center gap-1 mb-1">'
                  + '<span class="small fw-semibold text-truncate" style="flex:1" '
                  + 'title="' + escHtml(q.name) + '">' + escHtml(q.name) + '</span>'
@@ -720,19 +817,19 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                  + 'border-radius:4px;padding:1px 7px;line-height:1.6">'
                  + '<i class="fa fa-eye"></i> Vorschau</button>'
                  + '</div>'
-                 // Typ-Badges
+                 // Type badges.
                  + '<div class="d-flex flex-wrap gap-1 mb-1">'
                  + '<span class="badge ' + typeCol + '" style="font-size:10px">' + typeLbl + '</span>'
                  + '<span class="badge bg-light text-muted" style="font-size:10px">'
                  + escHtml(q.categoryname) + '</span>'
                  + tagPills + '</div>'
-                 // Sternebewertung
+                 // Star rating.
                  + '<div>' + stars + '</div>'
                  + '</div></div></div>';
         });
         wrap.innerHTML = html;
 
-        // Klick auf Zeile → Checkbox (nicht wenn Vorschau oder Stern geklickt)
+        // Clicking a row toggles its checkbox unless the preview or a star was clicked.
         wrap.querySelectorAll('.qf-item').forEach(function(item) {
             item.addEventListener('click', function(e) {
                 if (e.target.tagName === 'INPUT'
@@ -749,7 +846,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         });
 
-        // Klick auf Vorschau-Button → Modal öffnen
+        // Clicking the preview button opens the modal.
         wrap.querySelectorAll('.qf-preview-btn').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
@@ -758,7 +855,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             });
         });
 
-        // Stern-Hover und Klick.
+        // Star hover and click.
         wrap.querySelectorAll('.qf-star').forEach(function(star) {
             star.addEventListener('mouseenter', function() {
                 var n = parseInt(this.dataset.star, 10);
@@ -823,7 +920,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         });
     };
 
-    // Export / Zum Test
+    // Export / Add to quiz.
     BlockState.prototype.doExport = function(format) {
         var self = this;
         var ids = Object.keys(self.selected).join(',');
@@ -831,7 +928,7 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             return;
         }
         Ajax.call([{
-            methodname: 'block_questionfilter_export_questions',
+            methodname: 'block_fragenfilter_export_questions',
             args: {questionids: ids, format: format, contextid: self.config.contextid || 1},
             done: function(result) {
                 if (result.success && result.url) {
@@ -846,74 +943,86 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             fail: Notification.exception,
         }]);
     };
-    // AddToQuiz: vorerst deaktiviert — Pool-Nutzer haben keine Test-Bearbeitungsrechte.
-    // Reaktivieren sobald ein konkreter Quiz-Kontext (Kurs + Quiz-ID) bekannt ist.
+    // AddToQuiz is disabled for now because pool accounts cannot edit quizzes.
+    // Re-enable once a specific quiz context (course + quiz ID) is known.
     BlockState.prototype.addToQuiz = function() { /* Noop — reserved for future use. */ };
 
-    /**
-     * Session-Hash fuer Gast-Bewertungen — einmalig pro Sitzung erzeugen.
-     *
-     * @return {String} 64-stelliger Hex-String.
-     */
-    function getSessionHash() {
-        var key = 'qf_session_hash';
-        var h = '';
-        try {
-            h = sessionStorage.getItem(key) || '';
-        } catch (e) {
-            // Private-Modus.
-        }
-        if (!h) {
-            var chars = 'abcdef0123456789';
-            for (var i = 0; i < 64; i++) {
-                h += chars[Math.floor(Math.random() * chars.length)];
-            }
-            try {
-                sessionStorage.setItem(key, h);
-            } catch (e) {
-                // Ignore storage errors.
-            }
-        }
-        return h;
-    }
-
     // ---------------------------------------------------------------
-    // Vorschau-Modal
+    // Preview modal.
     // ---------------------------------------------------------------
 
     /**
-     * Oeffnet die Fragenvorschau.
+     * Opens the question preview.
      *
-     * Angemeldete Nutzer: Moodle-Vorschauseite direkt in neuem Tab.
-     * Gaeste: Weiterleitung ueber guest_preview.php (loggt Pool-Nutzer ein)
-     *         ebenfalls in neuem Tab.
+     * Logged-in users: open the Moodle preview page directly in a new tab.
+     * Guests: redirect through guest_preview.php (logs in a pool account),
+     *                 also in a new tab.
      *
-     * @param {Number} qid Fragen-ID.
+     * @param {Number} qid Question ID.
      */
     BlockState.prototype.openPreview = function(qid) {
         var self = this;
         var wwwroot = self.config.wwwroot || M.cfg.wwwroot;
         var url;
 
-        if (self.config.isloggedin) {
-            // Angemeldeter Nutzer: direkt zur Moodle-Vorschauseite.
-            url = wwwroot + '/question/bank/previewquestion/preview.php?id=' + qid;
-        } else {
-            // Gast: Pool-Nutzer-Login-Endpunkt.
-            url = wwwroot + '/blocks/questionfilter/guest_preview.php?qid=' + qid;
+        // All users — including already-logged-in pool accounts — go through
+        // guest_preview.php so that it can look up the cmid of the mod_qbank
+        // activity that holds the question (required by Moodle 5+ preview.php)
+        // and redirect accordingly.  Guests additionally get a pool account here.
+        if (!self.config.isloggedin) {
+            // Guest: the pool login may cause Moodle to refresh the main page
+            // (session-cookie change). Save filter state so it can be restored.
+            self.saveStateForReload();
         }
 
-        window.open(url, 'qf_preview_' + qid, 'width=900,height=700,scrollbars=yes,resizable=yes');
+        // POST to guest_preview.php (sesskey required for CSRF protection).
+        var target = 'qf_preview_' + qid;
+        window.open('', target, 'width=900,height=700,scrollbars=yes,resizable=yes');
+        var form = document.createElement('form');
+        form.method = 'post';
+        form.action = wwwroot + '/blocks/fragenfilter/guest_preview.php';
+        form.target = target;
+        [['qid', qid], ['sesskey', M.cfg.sesskey]].forEach(function(field) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = field[0];
+            input.value = field[1];
+            form.appendChild(input);
+        });
+        document.body.appendChild(form);
+        form.submit();
+        form.remove();
+    };
+
+    /**
+     * Saves the current filter state to sessionStorage so it can be restored
+     * after an unexpected page reload (e.g. triggered by a session-cookie change
+     * when the pool login happens in the preview popup).
+     */
+    BlockState.prototype.saveStateForReload = function() {
+        var self = this;
+        try {
+            var key = 'qf_restore_selection_' + self.blockid;
+            var snap = {
+                search: self.search,
+                cats: self.cats,
+                types: self.types,
+                diffs: self.diffs,
+                tags: self.tags,
+                ids: Object.keys(self.selected).map(Number),
+            };
+            sessionStorage.setItem(key, JSON.stringify(snap));
+        } catch (e) { /* Ignore storage errors. */ }
     };
 
     // ---------------------------------------------------------------
-    // Sternebewertung
+    // Star rating.
     // ---------------------------------------------------------------
 
     /**
-     * Laedt Bewertungen fuer alle sichtbaren Fragen.
+     * Loads ratings for all visible questions.
      *
-     * @param {Array} qids Liste von Fragen-IDs.
+     * @param {Array} qids List of question IDs.
      */
     BlockState.prototype.loadRatings = function(qids) {
         var self = this;
@@ -921,10 +1030,9 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
             return;
         }
         Ajax.call([{
-            methodname: 'block_questionfilter_get_ratings',
+            methodname: 'block_fragenfilter_get_ratings',
             args: {
                 questionids: qids.join(','),
-                sessionhash: self.sessionHash,
                 contextid: self.config.contextid || 1,
             },
             done: function(result) {
@@ -938,19 +1046,18 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     };
 
     /**
-     * Speichert eine Sternebewertung fuer eine Frage.
+     * Saves a question's star rating.
      *
-     * @param {Number} qid   Fragen-ID.
-     * @param {Number} stars Anzahl Sterne (1-5).
+     * @param {Number} qid   Question ID.
+     * @param {Number} stars Number of stars (1-5).
      */
     BlockState.prototype.rateQuestion = function(qid, stars) {
         var self = this;
         Ajax.call([{
-            methodname: 'block_questionfilter_rate_question',
+            methodname: 'block_fragenfilter_rate_question',
             args: {
                 questionid:  qid,
                 rating:      stars,
-                sessionhash: self.sessionHash,
                 contextid: self.config.contextid || 1,
             },
             done: function(result) {
@@ -964,13 +1071,13 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     };
 
     /**
-     * Gibt das HTML fuer die Sternebewertung einer Frage zurueck.
+     * Returns the HTML for a question's star rating.
      *
-     * Eigene Bewertung: gelbe Sterne.
-     * Nur Durchschnitt: graue Sterne.
+     * Own rating: yellow stars.
+     * Average only: grey stars.
      *
-     * @param {Number} qid Fragen-ID.
-     * @return {String} HTML-String.
+     * @param {Number} qid Question ID.
+     * @return {String} HTML string.
      */
     BlockState.prototype.renderStars = function(qid) {
         var r = this.ratings[qid] || {average: 0, count: 0, myrating: 0};
@@ -998,10 +1105,10 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     };
 
     /**
-     * Maskiert HTML-Sonderzeichen fuer die sichere Ausgabe.
+     * Escapes HTML special characters for safe output.
      *
-     * @param {String} s Zu maskierender Text.
-     * @return {String} Maskierter Text.
+     * @param {String} s Text to escape.
+     * @return {String} Escaped text.
      */
     function escHtml(s) {
         if (s === null || s === undefined) {
@@ -1013,9 +1120,9 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
 
     return {
         /**
-         * Initialisiert eine Blockinstanz.
+         * Initialises a block instance.
          *
-         * @param {Object} config Konfiguration aus PHP.
+         * @param {Object} config Configuration from PHP.
          */
         init: function(config) {
             var state = new BlockState(config.blockid, config);

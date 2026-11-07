@@ -15,94 +15,31 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Bibliotheksfunktionen des Plugins block_questionfilter.
+ * Library functions for block_fragenfilter.
  *
- * @package    block_questionfilter
+ * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
  * @author     Moodle in Niedersachsen e. V.
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-/**
- * Called by Moodle after config.php is loaded (every request).
- *
- * Delegates pool-user restrictions entirely to block_kursfilter when that
- * plugin is installed (it already handles messaging suppression and URL
- * redirects for pool users). If block_kursfilter is not present, this
- * callback applies the same guards independently so pool users cannot reach
- * profile, preferences, messaging or similar pages even when only
- * block_questionfilter is installed.
- */
-function block_questionfilter_after_config(): void {
-    global $CFG, $USER;
-
-    // Only act on real pool users.
-    if (!isloggedin() || isguestuser()) {
-        return;
-    }
-
-    // If block_kursfilter is installed its own after_config already ran;
-    // Its is_pool_user() check covers the same accounts, so avoid duplicate work.
-    if (class_exists('\block_kursfilter\pool_manager')) {
-        // Block_kursfilter handles everything — nothing to do here.
-        return;
-    }
-
-    // Standalone guard: mirror block_kursfilter logic using the shared username prefix.
-    $prefix = 'kursfilter_guest';
-    if (empty($USER->username) || strpos($USER->username, $prefix) !== 0) {
-        return;
-    }
-
-    // Suppress messaging icon for this session.
-    $CFG->messaging = false;
-
-    // Redirect blocked paths to site home.
-    $blockedprefixes = [
-        '/user/profile.php',
-        '/user/edit.php',
-        '/user/preferences.php',
-        '/user/managefiles.php',
-        '/message/',
-        '/calendar/',
-        '/grade/report/overview/',
-        '/grade/report/user/',
-        '/badges/',
-        '/blog/',
-        '/my/',
-        '/user/files.php',
-    ];
-
-    $script = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
-    $wwwroot = rtrim(parse_url($CFG->wwwroot, PHP_URL_PATH) ?? '', '/');
-    if ($wwwroot !== '' && strpos($script, $wwwroot) === 0) {
-        $script = substr($script, strlen($wwwroot));
-    }
-
-    foreach ($blockedprefixes as $prefix) {
-        if (strpos($script, $prefix) === 0) {
-            header('Location: ' . $CFG->wwwroot . '/');
-            exit;
-        }
-    }
-}
 
 /**
- * Datei-Download-Handler fuer Export-Dateien.
+ * Download handler for export files.
  *
- * Wird von Moodle automatisch aufgerufen bei
- * /pluginfile.php/.../block_questionfilter/export/...
+ * Called automatically by Moodle at
+ * /pluginfile.php/.../block_fragenfilter/export/...
  *
- * @param stdClass $course Kursobjekt.
- * @param stdClass $cm Kursmodulobjekt.
- * @param context $context Kontext der Datei.
- * @param string $filearea Dateibereich.
- * @param array $args Restliche Pfadbestandteile.
- * @param bool $forcedownload Ob der Download erzwungen wird.
- * @param array $options Zusaetzliche Optionen fuer die Auslieferung.
+ * @param stdClass $course Course object.
+ * @param stdClass $cm Course module object.
+ * @param context $context File context.
+ * @param string $filearea File area.
+ * @param array $args Remaining path components.
+ * @param bool $forcedownload Whether to force the download.
+ * @param array $options Additional file serving options.
  * @return void
  */
-function block_questionfilter_pluginfile(
+function block_fragenfilter_pluginfile(
     $course,
     $cm,
     $context,
@@ -111,24 +48,33 @@ function block_questionfilter_pluginfile(
     $forcedownload,
     array $options = []
 ): void {
+    global $USER, $SESSION;
+
     require_login();
 
-    if ($filearea !== 'export') {
+    if ($filearea !== 'export' || $context->contextlevel !== CONTEXT_SYSTEM) {
         send_file_not_found();
     }
 
-    if (!has_capability('moodle/question:viewall', context_system::instance())) {
+    if (!has_capability('block/fragenfilter:export', context_system::instance())) {
         send_file_not_found();
     }
 
     $itemid = array_shift($args);
+    if ((int)$itemid !== (int)$USER->id || count($args) !== 1 || isguestuser()) {
+        send_file_not_found();
+    }
     $filename = array_pop($args);
     $filepath = $args ? '/' . implode('/', $args) . '/' : '/';
 
     $fs = get_file_storage();
-    $file = $fs->get_file($context->id, 'block_questionfilter', 'export', $itemid, $filepath, $filename);
+    $file = $fs->get_file($context->id, 'block_fragenfilter', 'export', $itemid, $filepath, $filename);
 
-    if (!$file) {
+    if (
+        !$file || (int)$file->get_userid() !== (int)$USER->id || $file->is_directory() ||
+        empty($SESSION->fragenfilter_export_token) ||
+        !hash_equals($SESSION->fragenfilter_export_token, (string)$file->get_source())
+    ) {
         send_file_not_found();
     }
 

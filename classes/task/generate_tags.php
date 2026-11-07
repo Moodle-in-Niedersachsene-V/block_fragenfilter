@@ -17,24 +17,24 @@
 /**
  * Scheduled task: AI-based tag generation for questions.
  *
- * Uses block_questionfilter\ai_connector (direct Ollama/Claude call),
+ * Uses block_fragenfilter\ai_connector (direct Ollama/Claude call),
  * NOT Moodle's core_ai subsystem.
  *
  * Each question is processed once; the outcome is stored in
- * block_questionfilter_tag_pending with status:
+ * block_fragenfilter_tag_pending with status:
  *   'applied'  — tags were written directly to Moodle's tag system
  *   'pending'  — suggestion stored, waiting for manual review
  *   'empty'    — no suitable tag found
  *
- * @package    block_questionfilter
+ * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
  * @author     Moodle in Niedersachsen e. V.
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-namespace block_questionfilter\task;
+namespace block_fragenfilter\task;
 
-use block_questionfilter\ai_connector;
+use block_fragenfilter\ai_connector;
 
 /**
  * Processes a batch of questions without AI-generated tags and
@@ -50,7 +50,7 @@ class generate_tags extends \core\task\scheduled_task {
      * @return string
      */
     public function get_name(): string {
-        return get_string('task_generate_tags', 'block_questionfilter');
+        return get_string('task_generate_tags', 'block_fragenfilter');
     }
 
     /**
@@ -62,19 +62,19 @@ class generate_tags extends \core\task\scheduled_task {
      * @throws \moodle_exception If AI tagging is disabled or any question could not be processed.
      */
     public function execute(): void {
-        if (!get_config('block_questionfilter', 'ai_enabled')) {
-            mtrace('block_questionfilter: KI-Verschlagwortung ist in den Einstellungen deaktiviert.');
+        if (!get_config('block_fragenfilter', 'ai_enabled')) {
+            mtrace('block_fragenfilter: KI-Verschlagwortung ist in den Einstellungen deaktiviert.');
             return;
         }
 
-        $autoapply = (bool)get_config('block_questionfilter', 'ai_autoapply');
-        $batchsize = (int)(get_config('block_questionfilter', 'ai_batch_size') ?: self::DEFAULT_BATCH_SIZE);
+        $autoapply = (bool)get_config('block_fragenfilter', 'ai_autoapply');
+        $batchsize = max(1, (int)(get_config('block_fragenfilter', 'ai_batch_size') ?: self::DEFAULT_BATCH_SIZE));
         $connector = new ai_connector();
 
         $questions = self::next_questions($batchsize);
 
         if (empty($questions)) {
-            mtrace('block_questionfilter: Keine unverarbeiteten Fragen gefunden.');
+            mtrace('block_fragenfilter: Keine unverarbeiteten Fragen gefunden.');
             return;
         }
 
@@ -83,10 +83,10 @@ class generate_tags extends \core\task\scheduled_task {
             try {
                 $tags   = $connector->suggest_tags($question->name, $question->questiontext, $question->qtype);
                 $status = self::record_outcome($question, $tags, $autoapply);
-                mtrace("block_questionfilter: Frage {$question->id} ({$question->name}): "
+                mtrace("block_fragenfilter: Frage {$question->id} ({$question->name}): "
                     . $status . ' (' . implode(', ', $tags) . ')');
             } catch (\Throwable $e) {
-                mtrace("block_questionfilter: Frage {$question->id} fehlgeschlagen: " . $e->getMessage());
+                mtrace("block_fragenfilter: Frage {$question->id} fehlgeschlagen: " . $e->getMessage());
                 $failed++;
             }
         }
@@ -94,7 +94,7 @@ class generate_tags extends \core\task\scheduled_task {
         if ($failed > 0) {
             throw new \moodle_exception(
                 'error_ai_tagging_failed',
-                'block_questionfilter',
+                'block_fragenfilter',
                 '',
                 (object)['failed' => $failed, 'total' => count($questions)]
             );
@@ -105,7 +105,7 @@ class generate_tags extends \core\task\scheduled_task {
      * Returns questions that have not yet been processed by AI tagging.
      *
      * Only ready, non-template questions are included. Questions with an
-     * existing entry in block_questionfilter_tag_pending are skipped.
+     * existing entry in block_fragenfilter_tag_pending are skipped.
      *
      * @param int $limit Maximum number of questions.
      * @return \stdClass[] Question records.
@@ -113,16 +113,56 @@ class generate_tags extends \core\task\scheduled_task {
     private static function next_questions(int $limit): array {
         global $DB;
 
+        // Resolve the Aufgabenpool category path so we can restrict tagging to
+        // questions that live in courses under that category subtree. This mirrors
+        // the restriction in external.php (search_questions / get_categories) and
+        // guest_preview.php: questions from other categories (e.g. "Kurse") must
+        // never appear here.
+        $poolcatname = \block_fragenfilter\pool_manager::POOL_ENROL_CATEGORY;
+        $poolcat     = $DB->get_record('course_categories', ['name' => $poolcatname], 'id,path', IGNORE_MISSING);
+
+        if (!$poolcat) {
+            // Aufgabenpool category not found — abort safely rather than tagging everything.
+            mtrace('block_fragenfilter generate_tags: Aufgabenpool-Kategorie nicht gefunden – Abbruch.');
+            return [];
+        }
+
+        $pathprefix = $DB->sql_like_escape($poolcat->path);
+        $exactlike  = $DB->sql_like('cat.path', ':exactpath');
+        $sublike    = $DB->sql_like('cat.path', ':subpath');
+
+        // Only select questions whose question_bank_entry lives in a qbank activity
+        // that belongs to a course under the Aufgabenpool category (or the category
+        // itself). The JOIN chain: question → question_versions → question_bank_entries
+        // → question_categories → context (contextlevel=70 = CONTEXT_MODULE) →
+        // course_modules (module name = 'qbank') → course → course_categories.
         $sql = "SELECT q.id, q.name, q.qtype, q.questiontext
                   FROM {question} q
+                  JOIN {question_versions}     qv  ON qv.questionid        = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id               = qv.questionbankentryid
+                  JOIN {question_categories}   qc  ON qc.id                = qbe.questioncategoryid
+                  JOIN {context}               ctx ON ctx.id               = qc.contextid
+                                                  AND ctx.contextlevel     = :ctxlvl
+                  JOIN {course_modules}        cm  ON cm.id                = ctx.instanceid
+                  JOIN {modules}               m   ON m.id                 = cm.module
+                                                  AND m.name               = 'qbank'
+                  JOIN {course}                c   ON c.id                 = cm.course
+                  JOIN {course_categories}     cat ON cat.id               = c.category
                  WHERE q.parent = 0
+                   AND ($exactlike OR $sublike)
                    AND NOT EXISTS (
-                       SELECT 1 FROM {block_questionfilter_tag_pending} tp
+                       SELECT 1 FROM {block_fragenfilter_tag_pending} tp
                         WHERE tp.questionid = q.id
                    )
               ORDER BY q.id ASC";
 
-        return $DB->get_records_sql($sql, [], 0, $limit);
+        $params = [
+            'ctxlvl'    => CONTEXT_MODULE,
+            'exactpath' => $pathprefix,
+            'subpath'   => $pathprefix . '/%',
+        ];
+
+        return $DB->get_records_sql($sql, $params, 0, $limit);
     }
 
     /**
@@ -146,7 +186,7 @@ class generate_tags extends \core\task\scheduled_task {
         }
 
         $now = time();
-        $DB->insert_record('block_questionfilter_tag_pending', (object)[
+        $DB->insert_record('block_fragenfilter_tag_pending', (object)[
             'questionid'   => (int)$question->id,
             'tags'         => implode(',', $tags),
             'status'       => $status,
@@ -160,8 +200,8 @@ class generate_tags extends \core\task\scheduled_task {
     /**
      * Writes approved tags directly into Moodle's question tag system.
      *
-     * Tags are attached to the question_bank_entry (Moodle 4.x+) with the
-     * correct category context, so they appear in the question bank UI.
+     * Existing tags are preserved. The caller authorises either manual review
+     * or the administrator-enabled scheduled task before calling this method.
      *
      * @param int      $questionid Question ID (mdl_question.id).
      * @param string[] $tags       Tag values to write.
@@ -169,38 +209,18 @@ class generate_tags extends \core\task\scheduled_task {
     public static function apply_tags(int $questionid, array $tags): void {
         global $DB;
 
-        // Moodle 4.x+ stores question tags on question_bank_entries.
-        $qbe = $DB->get_record_sql(
-            "SELECT qbe.id, qc.contextid
-               FROM {question_bank_entries} qbe
-               JOIN {question_versions} qv  ON qv.questionbankentryid = qbe.id
+        $question = $DB->get_record_sql(
+            "SELECT q.id, qc.contextid
+               FROM {question} q
+               JOIN {question_versions} qv ON qv.questionid = q.id
+               JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-              WHERE qv.questionid = :qid
-           ORDER BY qv.version DESC",
+              WHERE q.id = :qid",
             ['qid' => $questionid],
-            IGNORE_MULTIPLE
+            MUST_EXIST
         );
-
-        if (!$qbe) {
-            debugging(
-                'block_questionfilter generate_tags::apply_tags(): '
-                    . 'question_bank_entry not found for question ' . $questionid,
-                DEBUG_DEVELOPER
-            );
-            return;
-        }
-
-        $context = \context::instance_by_id($qbe->contextid, IGNORE_MISSING);
-        if (!$context) {
-            $context = \context_system::instance();
-        }
-
-        \core_tag_tag::set_item_tags(
-            'core_question',
-            'question_bank_entry',
-            (int)$qbe->id,
-            $context,
-            $tags
-        );
+        $context = \context::instance_by_id($question->contextid);
+        $existing = \core_tag_tag::get_item_tags_array('core_question', 'question', $questionid);
+        \core_tag_tag::set_item_tags('core_question', 'question', $questionid, $context, array_merge($existing, $tags));
     }
 }

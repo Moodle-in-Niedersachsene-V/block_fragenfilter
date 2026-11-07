@@ -1,4 +1,4 @@
-# block_questionfilter — Moodle Fragebank-Filter-Block
+# block_fragenfilter — Moodle Fragenfilter-Block
 
 ## Überblick
 
@@ -22,7 +22,7 @@ direkt von der Startseite oder dem Dashboard aus.
 
 ## Installation
 
-1. Ordner `block_questionfilter` nach `{moodle_root}/blocks/` kopieren
+1. Plugin-Dateien nach `{moodle_root}/blocks/fragenfilter/` kopieren. Direkt darin müssen `version.php` und `block_fragenfilter.php` liegen; ab Moodle 5.1 liegt `blocks/` unter `public/`.
 2. Als Admin unter **Website-Administration → Benachrichtigungen** das Upgrade ausführen
 3. Den Block auf der **Startseite** (oder einem Kurs) über *Block hinzufügen* einfügen
 
@@ -30,9 +30,9 @@ direkt von der Startseite oder dem Dashboard aus.
 
 ```bash
 # Im Moodle-Root:
-php admin/cli/build_js.php --component=block_questionfilter
+php admin/cli/build_js.php --component=block_fragenfilter
 # oder mit grunt:
-grunt amd --root=blocks/questionfilter
+grunt amd --root=blocks/fragenfilter
 ```
 
 Im Entwicklungsmodus (`$CFG->cachejs = false`) wird die Quelle aus `amd/src/` direkt geladen.
@@ -41,7 +41,7 @@ Im Entwicklungsmodus (`$CFG->cachejs = false`) wird die Quelle aus `amd/src/` di
 
 ## Admin-Einstellungen
 
-**Website-Administration → Plugins → Blöcke → Fragebank-Filter**
+**Website-Administration → Plugins → Blöcke → Fragenfilter**
 
 | Einstellung | Beschreibung |
 |---|---|
@@ -56,8 +56,8 @@ Im Entwicklungsmodus (`$CFG->cachejs = false`) wird die Quelle aus `amd/src/` di
 ## Architektur
 
 ```
-block_questionfilter/
-├── block_questionfilter.php   # Block-Klasse (applicable_formats, get_content)
+block_fragenfilter/
+├── block_fragenfilter.php   # Block-Klasse (applicable_formats, get_content)
 ├── renderer.php               # Renderer – Mustache-Template befüllen
 ├── lib.php                    # pluginfile-Handler für Export-Downloads
 ├── settings.php               # Admin-Einstellungsseite
@@ -78,7 +78,7 @@ block_questionfilter/
 │   └── services.php           # AJAX-Service-Definitionen
 │
 ├── lang/de/
-│   └── block_questionfilter.php  # Deutsche Sprachdatei
+│   └── block_fragenfilter.php  # Deutsche Sprachdatei
 │
 └── templates/
     └── block.mustache         # Block-HTML-Template
@@ -118,7 +118,7 @@ und `question_categories` aus.
 |---|---|---|
 | `moodle/question:viewmine` | Lehrkräfte | Suche in eigenen Fragen |
 | `moodle/question:viewall` | Admins, Kurs-Manager | Suche + Export aller Fragen |
-| `block/questionfilter:addinstance` | Editing Teacher | Block zum Kurs hinzufügen |
+| `block/fragenfilter:addinstance` | Editing Teacher | Block zum Kurs hinzufügen |
 
 ---
 

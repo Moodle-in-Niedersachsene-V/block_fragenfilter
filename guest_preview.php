@@ -15,98 +15,162 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Gast-Vorschau-Endpunkt fuer block_questionfilter.
+ * Preview endpoint for block_fragenfilter.
  *
- * Waehlt einen Pool-Nutzer (kursfilter_guest*) aus, loggt ihn ein
- * und zeigt eine Zwischenseite mit Links zur Vorschau und zur Startseite.
- * Kein require_login() – Endpunkt ist bewusst oeffentlich.
+ * Starts the question preview using block_fragenfilter's own pool accounts
+ * (fragenfilter_pool01 … fragenfilter_pool10). Real users are redirected
+ * directly to the preview. Guests get a dedicated pool account with the
+ * fragenfilter_preview role, which grants question:viewmine, question:usemine,
+ * fragenfilter:view and fragenfilter:export.
  *
- * Aufruf: /blocks/questionfilter/guest_preview.php?qid=42
+ * Unlike block_kursfilter's pool, there is NO per-IP lock: multiple browser
+ * tabs from the same visitor may each hold a different pool account and open
+ * a different question preview simultaneously.
  *
- * @package    block_questionfilter
+ * Usage: POST /blocks/fragenfilter/guest_preview.php, body qid=42&sesskey=...
+ *
+ * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(__DIR__ . '/../../config.php'); // @codingStandardsIgnoreLine
+// phpcs:ignore moodle.Files.RequireLogin.Missing,moodle.Commenting.InlineComment.NotCapital,moodle.Commenting.InlineComment.InvalidEndChar -- ADR 0002: public pool-login entry; POST and require_sesskey() protect the login. Semgrep uses a fixed marker syntax.
+require_once(__DIR__ . '/../../config.php'); // nosemgrep: moodle-einstiegsdatei-ohne-login
 
 $qid = required_param('qid', PARAM_INT);
+if (!data_submitted()) {
+    throw new moodle_exception('error_preview_needs_post', 'block_fragenfilter');
+}
+require_sesskey();
 
-// Frage muss existieren.
-$question = $DB->get_record('question', ['id' => $qid, 'parent' => 0], 'id, name', IGNORE_MISSING);
-if (!$question) {
+// The question must exist and be visible to the current visitor; otherwise we do
+// not consume a pool slot.
+if (!\block_fragenfilter\question_visibility::is_visible($qid)) {
     $PAGE->set_context(context_system::instance());
-    $PAGE->set_url(new moodle_url('/blocks/questionfilter/guest_preview.php'));
+    $PAGE->set_url(new moodle_url('/blocks/fragenfilter/guest_preview.php'));
     echo $OUTPUT->header();
     echo $OUTPUT->notification(
-        get_string('invalidquestion', 'block_questionfilter'),
+        get_string('invalidquestion', 'block_fragenfilter'),
         \core\output\notification::NOTIFY_ERROR
     );
     echo $OUTPUT->footer();
     exit;
 }
 
-// Bereits angemeldete Nutzer direkt zur Vorschau weiterleiten.
-if (isloggedin() && !isguestuser()) {
-    redirect(new moodle_url('/question/bank/previewquestion/preview.php', ['id' => $qid]));
+// In Moodle 5+ with mod_qbank, preview.php requires a cmid parameter so that
+// $PAGE->set_cm() can resolve the correct course context. Without it Moodle throws
+// a coding_error ("course does not correspond to the cm"). We look up the cmid from
+// the question's question bank entry.
+$previewparams = ['id' => $qid];
+
+// Resolve the Aufgabenpool category so we can restrict the cmid lookup to courses
+// that belong to it (or any of its sub-categories). We use the category's stored
+// path (e.g. "/1/17") to filter with a LIKE, which covers arbitrary nesting depth
+// without a recursive walk and avoids false positives from same-named categories
+// in other branches.
+$poolcatname = \block_fragenfilter\pool_manager::POOL_ENROL_CATEGORY;
+$poolcat     = $DB->get_record('course_categories', ['name' => $poolcatname], 'id,path', IGNORE_MISSING);
+$cmid        = null;
+if ($poolcat) {
+    // Match the category itself and all descendants: path = '/…/17' or starts with '/…/17/'.
+    $pathprefix = $DB->sql_like_escape($poolcat->path);
+    $cmid = $DB->get_field_sql(
+        "SELECT cm.id
+           FROM {course_modules} cm
+           JOIN {modules} m ON m.id = cm.module
+           JOIN {course} c ON c.id = cm.course
+           JOIN {course_categories} cat ON cat.id = c.category
+           JOIN {context} ctx ON ctx.instanceid = cm.id AND ctx.contextlevel = :ctxlvl
+           JOIN {question_categories} qc ON qc.contextid = ctx.id
+           JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
+           JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
+          WHERE m.name = 'qbank'
+            AND qv.questionid = :qid
+            AND (" . $DB->sql_like('cat.path', ':exactpath') . "
+              OR " . $DB->sql_like('cat.path', ':subpath') . ")
+          LIMIT 1",
+        [
+            'ctxlvl'    => CONTEXT_MODULE,
+            'qid'       => $qid,
+            'exactpath' => $pathprefix,
+            'subpath'   => $pathprefix . '/%',
+        ]
+    );
 }
+if ($cmid) {
+    $previewparams['cmid'] = (int)$cmid;
+}
+$previewurl = new moodle_url('/question/bank/previewquestion/preview.php', $previewparams);
+$hasreallogin = isloggedin() && !isguestuser();
 
-
-// Pool-Nutzer suchen: kursfilter_guest* oder questionfilter_guest*.
-$pooluser = null;
-$prefixes = ['kursfilter_guest', 'questionfilter_guest'];
-foreach ($prefixes as $prefix) {
-    for ($i = 1; $i <= 50; $i++) {
-        $username = $prefix . str_pad((string)$i, 2, '0', STR_PAD_LEFT);
-        $user = $DB->get_record(
-            'user',
-            ['username' => $username, 'deleted' => 0, 'suspended' => 0],
-            '*',
-            IGNORE_MISSING
-        );
-        if ($user) {
-            $pooluser = $user;
-            break 2;
+// Real users (including already-logged-in pool accounts) go straight to the preview.
+if ($hasreallogin) {
+    // Ensure the current user has the preview role (idempotent; no-op for real teachers).
+    \block_fragenfilter\preview_role::assign_to_pool_account($USER);
+    // Pool accounts are not enrolled in courses. Moodle 5+ preview.php calls
+    // require_login($course) internally via set_cm(), which blocks unenrolled users
+    // and redirects them to the course page. We enrol pool accounts as students
+    // in the qbank course so the preview can open — enrolment is revoked by the
+    // cleanup_pool_sessions scheduled task when the session expires.
+    if ($cmid && \block_fragenfilter\preview_role::is_pool_account($USER)) {
+        $courseid = $DB->get_field('course_modules', 'course', ['id' => (int)$cmid]);
+        if ($courseid) {
+            \block_fragenfilter\pool_manager::ensure_course_enrolment($USER->id, (int)$courseid);
         }
     }
+    redirect($previewurl);
 }
 
-if (!$pooluser) {
+// Guest visitor: occupy a fragenfilter pool account.
+try {
+    $account = \block_fragenfilter\pool_manager::occupy_free_account();
+} catch (\moodle_exception $e) {
+    // Lock timeout — extremely unlikely but handled gracefully.
+    $account = null;
+}
+
+if ($account === null) {
+    // All pool accounts are currently occupied.
     $PAGE->set_context(context_system::instance());
-    $PAGE->set_url(new moodle_url('/blocks/questionfilter/guest_preview.php', ['qid' => $qid]));
+    $PAGE->set_url(new moodle_url('/blocks/fragenfilter/guest_preview.php'));
     echo $OUTPUT->header();
     echo $OUTPUT->notification(
-        get_string('preview_nopooluser', 'block_questionfilter'),
+        get_string('preview_pool_full', 'block_fragenfilter'),
         \core\output\notification::NOTIFY_WARNING
     );
     echo $OUTPUT->footer();
     exit;
 }
 
-// Pool-Nutzer einloggen.
-$pooluser = get_complete_user_data('id', $pooluser->id);
-complete_user_login($pooluser);
+// Pool account is now logged in via complete_user_login() inside occupy_free_account().
+// Give it the preview role (idempotent).
+\block_fragenfilter\preview_role::assign_to_pool_account($USER);
 
-// Nach Login: Zwischenseite ausgeben, die per postMessage dem Opener-Tab
-// bescheid gibt (damit dort refreshCapabilities() laeuft und die Export-Buttons
-// erscheinen) und dann direkt zur Fragenvorschau navigiert.
-$previewurl = (new moodle_url(
-    '/question/bank/previewquestion/preview.php',
-    ['id' => $qid]
-))->out(false);
+// Enrol the pool account in the course that holds the mod_qbank activity.
+// preview.php calls require_login($course) internally; without enrolment Moodle
+// blocks access and redirects the pool account to the course page instead of the preview.
+if ($cmid) {
+    $courseid = $DB->get_field('course_modules', 'course', ['id' => (int)$cmid]);
+    if ($courseid) {
+        \block_fragenfilter\pool_manager::ensure_course_enrolment($USER->id, (int)$courseid);
+    }
+}
+
+// Notify the opener tab via postMessage so refreshCapabilities() activates the export buttons.
+// Then navigate this popup window to the actual question preview.
+$previewurlstring = $previewurl->out(false);
+$wwwrootjson      = json_encode($CFG->wwwroot);
+$previewurljson   = json_encode($previewurlstring);
 
 $PAGE->set_context(context_system::instance());
-$PAGE->set_url(new moodle_url('/blocks/questionfilter/guest_preview.php', ['qid' => $qid]));
+$PAGE->set_url(new moodle_url('/blocks/fragenfilter/guest_preview.php', ['qid' => $qid]));
 $PAGE->set_pagelayout('embedded');
 echo $OUTPUT->header();
-
-$wwwrootjson  = json_encode($CFG->wwwroot);
-$previewurljson = json_encode($previewurl);
 
 echo <<<HTML
 <script>
 (function() {
-    // Opener (Block-Seite) informieren, dass Pool-Login abgeschlossen ist.
+    // Notify the opener (block page) that pool login has completed.
     if (window.opener && !window.opener.closed) {
         try {
             window.opener.postMessage(
@@ -115,7 +179,7 @@ echo <<<HTML
             );
         } catch (e) { /* cross-origin guard */ }
     }
-    // Direkt zur Fragenvorschau navigieren.
+    // Navigate directly to the question preview.
     window.location.replace({$previewurljson});
 })();
 </script>

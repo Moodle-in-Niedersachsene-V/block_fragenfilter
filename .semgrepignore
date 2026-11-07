@@ -1,5 +1,1 @@
-# guest_preview.php ist ein bewusst oeffentlicher Endpunkt.
-# Er erfordert kein require_login(), weil er selbst complete_user_login()
-# mit einem Pool-Nutzer aufruft, um Gaesten die Fragenvorschau zu ermoeglichen.
-# Sicherheitsreview: block_questionfilter Sicherheitspruefung (Build 2026090528).
-guest_preview.php
+# Keep test PHP files in the scan as well; no project-wide exclusions.

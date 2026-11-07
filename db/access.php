@@ -15,9 +15,9 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Faehigkeiten (capabilities) des Plugins block_questionfilter.
+ * Capabilities for block_fragenfilter.
  *
- * @package    block_questionfilter
+ * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
  * @author     Moodle in Niedersachsen e. V.
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -26,9 +26,9 @@
 defined('MOODLE_INTERNAL') || die();
 
 $capabilities = [
-    // Berechtigung den Block zu sehen und zu nutzen.
-    // Fuer Gaeste aktivierbar unter Website-Administration, Nutzer, Rollen.
-    'block/questionfilter:view' => [
+    // Permission to view and use the block.
+    // Can be granted to guests under Site administration, Users, Roles.
+    'block/fragenfilter:view' => [
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [
@@ -41,9 +41,9 @@ $capabilities = [
         ],
     ],
 
-    // Export nur fuer Lehrkraefte aufwaerts.
-    // RISK_PERSONAL: Fragen koennen personenbezogene Inhalte enthalten (z. B. Aufgabentexte mit Namen).
-    'block/questionfilter:export' => [
+    // Export is restricted to teachers and above.
+    // RISK_PERSONAL: questions may contain personal data, such as names in question text.
+    'block/fragenfilter:export' => [
         'riskbitmask' => RISK_PERSONAL,
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,
@@ -54,7 +54,7 @@ $capabilities = [
         ],
     ],
 
-    'block/questionfilter:addinstance' => [
+    'block/fragenfilter:addinstance' => [
         'riskbitmask' => RISK_SPAM,
         'captype' => 'write',
         'contextlevel' => CONTEXT_BLOCK,
@@ -64,9 +64,9 @@ $capabilities = [
         ],
     ],
 
-    'block/questionfilter:myaddinstance' => [
-        // Semgrep moodle-capability-ohne-riskbitmask: RISK_SPAM gesetzt,
-        // da das Hinzufuegen eines Blocks als UI-Aktion ohne Inhaltseinbringung gilt.
+    'block/fragenfilter:myaddinstance' => [
+        // Semgrep moodle-capability-ohne-riskbitmask: RISK_SPAM is set because
+        // adding a block is a UI action without submitting content.
         'riskbitmask' => RISK_SPAM,
         'captype' => 'write',
         'contextlevel' => CONTEXT_SYSTEM,
@@ -76,9 +76,9 @@ $capabilities = [
         ],
     ],
 
-    // KI-Verschlagwortung: Tag-Vorschlaege pruefen und freigeben.
-    // RISK_SPAM: Freigabe schreibt Tags in die Moodle-Fragenbank.
-    'block/questionfilter:reviewtags' => [
+    // AI tagging: review and approve tag suggestions.
+    // RISK_SPAM: approval writes tags to Moodle's question bank.
+    'block/fragenfilter:reviewtags' => [
         'riskbitmask' => RISK_SPAM,
         'captype' => 'write',
         'contextlevel' => CONTEXT_SYSTEM,
@@ -89,7 +89,11 @@ $capabilities = [
     ],
 ];
 
-// Hinweis zu Moodle 5.0 und neuer.
-// Nach Migration von Moodle 4.x sind zwei Capabilities manuell zu aktivieren.
-// Es handelt sich um moodle/question:useall und moodle/question:usemine.
-// Bei Neuinstallationen ab Moodle 5.1 sind sie standardmaessig erlaubt.
+// Note for Moodle 5.0 and later.
+// After migration from Moodle 4.x, two capabilities must be enabled manually:
+// moodle/question:useall and moodle/question:usemine.
+// New installations from Moodle 5.1 allow them by default.
+//
+// The fragenfilter_preview role is not listed here — it is created dynamically in
+// preview_role::ensure() and assigned to block_kursfilter pool accounts so that they
+// can view and preview questions without receiving general teacher permissions.

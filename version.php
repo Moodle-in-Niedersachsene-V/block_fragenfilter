@@ -15,9 +15,9 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Versionsangaben des Plugins block_questionfilter.
+ * Version information for block_fragenfilter.
  *
- * @package    block_questionfilter
+ * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
  * @author     Moodle in Niedersachsen e. V.
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -25,8 +25,10 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'block_questionfilter';
-$plugin->version   = 2026101211;
+$plugin->component = 'block_fragenfilter';
+$plugin->version   = 2026102216;
 $plugin->requires  = 2025100600;
+// block_kursfilter is optional: block_fragenfilter runs standalone with its own pool accounts.
+// A soft check in classes/*.php guards code paths that reference block_kursfilter classes.
 $plugin->maturity  = MATURITY_STABLE;
-$plugin->release   = 'v1.3.9 (Build 2026101211)';
+$plugin->release   = 'v1.5.11 (Build 2026102216)';

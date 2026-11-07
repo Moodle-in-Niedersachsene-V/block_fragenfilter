@@ -1,7 +1,7 @@
 {{!
-    @template block_questionfilter/block
+    @template block_fragenfilter/block
 
-    Fragebank-Filter-Block.
+    Fragenfilter-Block.
 
     Classes required for JS:
     * none
@@ -10,20 +10,20 @@
     * data-blockid
 
     Context variables required for this template:
-    * blockid (int) - ID der Blockinstanz.
-    * difficulties (array of strings) - Niveaustufen.
-    * scope_all (bool) - Ob der Suchbereich 'all' ist.
+    * blockid (int) - Block instance ID.
+    * difficulties (array of strings) - Difficulty levels.
+    * scope_all (bool) - Whether the search scope is 'all'.
 
     Example context (json):
     {
         "blockid": 1,
-        "difficulties": ["Leicht", "Mittel", "Schwer"],
+        "difficulties": ["Easy", "Medium", "Hard"],
         "scope_all": true
     }
 }}
 <div class="qf-block" data-blockid="{{blockid}}" id="qf-block-{{blockid}}">
 
-  {{! === Freitext-Suche === }}
+  {{! === Free-text search === }}
   <div class="mb-2">
     <div class="input-group input-group-sm">
       <span class="input-group-text"><i class="fa fa-search"></i></span>
@@ -34,12 +34,12 @@
     <div id="qf-tag-chips-{{blockid}}" class="mt-1"></div>
   </div>
 
-  {{! === Fragesammlungen — Multiselect-Dropdown === }}
+  {{! === Question banks — multiselect dropdown === }}
   <div class="mb-2">
     <small class="text-muted fw-semibold text-uppercase d-block mb-1"
            id="qf-cat-label-{{blockid}}">Fragesammlungen</small>
 
-    {{! Eingabefeld öffnet das Dropdown }}
+    {{! The input opens the dropdown }}
     <div class="qf-catdrop-wrap" id="qf-catdrop-wrap-{{blockid}}" style="position:relative">
       <div class="input-group input-group-sm">
         <span class="input-group-text" style="padding:2px 7px">
@@ -58,27 +58,27 @@
         </button>
       </div>
 
-      {{! Dropdown-Panel }}
+      {{! Dropdown panel }}
       <div id="qf-cat-panel-{{blockid}}" style="
         display:none;position:absolute;z-index:1050;left:0;right:0;top:100%;
         background:var(--bs-body-bg,#fff);border:1px solid #dee2e6;
         border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.12);max-height:260px;
         overflow:hidden;display:none;flex-direction:column">
 
-        {{! Suchfeld innerhalb des Panels }}
+        {{! Search field inside the panel }}
         <div style="padding:6px 8px;border-bottom:1px solid #dee2e6;flex-shrink:0">
           <input type="text" class="form-control form-control-sm"
                  id="qf-cat-search-{{blockid}}"
                  placeholder="Sammlung suchen …">
         </div>
 
-        {{! Scrollbare Trefferliste }}
+        {{! Scrollable result list }}
         <div id="qf-cat-list-{{blockid}}"
              style="overflow-y:auto;flex:1;padding:4px 0">
           <div class="text-muted small px-3 py-2">Wird geladen …</div>
         </div>
 
-        {{! Footer: Alle / Keine }}
+        {{! Footer: All / None }}
         <div style="padding:5px 8px;border-top:1px solid #dee2e6;flex-shrink:0;
                     display:flex;gap:8px">
           <button class="btn btn-link btn-sm p-0 text-muted qf-cat-sel-all"
@@ -90,13 +90,13 @@
     </div>
   </div>
 
-  {{! === Fragetyp === }}
+  {{! === Question type === }}
   <div class="mb-2">
     <small class="text-muted fw-semibold text-uppercase d-block mb-1">Fragetyp</small>
     <div id="qf-type-chips-{{blockid}}"></div>
   </div>
 
-  {{! === Niveaustufen === }}
+  {{! === Difficulty levels === }}
   <div class="mb-2">
     <small class="text-muted fw-semibold text-uppercase d-block mb-1">Niveaustufen</small>
     <div id="qf-diff-chips-{{blockid}}">
@@ -108,22 +108,27 @@
 
   <hr class="my-2">
 
-  {{! === Ergebnis-Header === }}
+  {{! === Result header === }}
   <div class="d-flex justify-content-between align-items-center mb-1">
     <small class="text-muted" id="qf-count-{{blockid}}">–</small>
-    <button class="btn btn-link btn-sm p-0 text-muted qf-select-all" style="font-size:12px">
-      Alle wählen
-    </button>
+    <span>
+      <button type="button" class="btn btn-link btn-sm p-0 text-muted qf-select-all" style="font-size:12px">
+        Alle wählen
+      </button>
+      <button type="button" class="btn btn-link btn-sm p-0 ms-2 text-muted qf-reset" style="font-size:12px">
+        {{#str}} btn_reset, block_fragenfilter {{/str}}
+      </button>
+    </span>
   </div>
 
-  {{! === Ergebnisliste === }}
+  {{! === Result list === }}
   <div class="qf-results" id="qf-results-{{blockid}}">
     <div class="text-center text-muted small py-3">Filter setzen, um Fragen zu suchen.</div>
   </div>
 
   <hr class="my-2">
 
-  {{! === Export-Leiste (immer im DOM, initial versteckt, JS blendet nach Capability-Check ein) === }}
+  {{! === Export bar (always in the DOM, initially hidden, shown by JS after the capability check) === }}
   <div class="d-flex gap-1 flex-wrap align-items-center" id="qf-export-bar-{{blockid}}">
     <button class="btn btn-sm btn-outline-secondary qf-export"
             data-format="xml" disabled style="display:none">
@@ -137,9 +142,9 @@
             data-format="gift" disabled style="display:none">
       <i class="fa fa-file-text-o"></i> GIFT
     </button>
-    {{! Button "Zum Test" vorerst deaktiviert — Pool-Nutzer haben keine Test-Bearbeitungsrechte. }}
+    {{! The "Add to quiz" button is disabled for now because pool accounts cannot edit quizzes. }}
     {{! <button class="btn btn-sm btn-primary qf-add-to-quiz ms-auto" disabled style="display:none"> }}
-    {{!   <i class="fa fa-plus"></i> Zum Test }}
+    {{!   <i class="fa fa-plus"></i> Add to quiz }}
     {{! </button> }}
   </div>
   <div class="mt-1">
@@ -152,4 +157,4 @@
 
 </div>
 
-{{! Ende Block }}
+{{! End of block }}

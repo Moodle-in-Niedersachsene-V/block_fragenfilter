@@ -142,7 +142,7 @@ final class search_export_test extends \advanced_testcase {
             }
         };
         $exhaust = function () use ($search, $assertlimited): void {
-            for ($i = 0; $i < \block_fragenfilter_external::RATE_LIMIT_REQUESTS; $i++) {
+            for ($i = 0; $i < search::RATE_LIMIT_REQUESTS; $i++) {
                 $search();
             }
             $assertlimited();

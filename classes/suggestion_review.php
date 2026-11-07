@@ -28,9 +28,6 @@ namespace block_fragenfilter;
  * Decides which suggestions a reviewer may see; state changes live in tag_suggestion.
  */
 class suggestion_review {
-    /** @var string[] Actions that change suggestions. */
-    public const ACTIONS = ['approve', 'reject', 'approveall', 'rejectall'];
-
     /**
      * Returns all suggestions whose question the current user may view and tag.
      *

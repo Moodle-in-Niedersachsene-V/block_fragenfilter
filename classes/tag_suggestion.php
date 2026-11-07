@@ -27,7 +27,10 @@ use block_fragenfilter\event\suggestion_reviewed;
  * @copyright  2026 Moodle in Niedersachsen e. V.
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class tag_suggestion {
+final class tag_suggestion {
+    /** @var string[] Actions that change suggestions. */
+    public const ACTIONS = ['approve', 'reject', 'approveall', 'rejectall'];
+
     /**
      * Stores the suggestion of one question and, if requested, applies it at once.
      *
@@ -66,7 +69,7 @@ class tag_suggestion {
      * Approving writes the tags, rejecting only changes the status. Each review is
      * one transaction and triggers one suggestion_reviewed event.
      *
-     * @param string      $action       One of suggestion_review::ACTIONS.
+     * @param string      $action       One of self::ACTIONS.
      * @param \stdClass[] $pending      Pending suggestions the user may review, keyed by id.
      * @param int         $suggestionid Suggestion id for single actions.
      * @throws \invalid_parameter_exception For an unknown action.
@@ -75,7 +78,7 @@ class tag_suggestion {
     public static function review(string $action, array $pending, int $suggestionid): void {
         global $DB;
 
-        if (!in_array($action, suggestion_review::ACTIONS, true)) {
+        if (!in_array($action, self::ACTIONS, true)) {
             throw new \invalid_parameter_exception('Unknown review action.');
         }
         $bulk = in_array($action, ['approveall', 'rejectall'], true);

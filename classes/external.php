@@ -35,18 +35,6 @@ require_once($CFG->libdir . '/externallib.php');
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class block_fragenfilter_external extends external_api {
-    /** Maximum requests per user within the rate limit window (alias of the search module). */
-    const RATE_LIMIT_REQUESTS = \block_fragenfilter\search::RATE_LIMIT_REQUESTS;
-
-    /** Rate limit window length in seconds (alias of the search module). */
-    const RATE_LIMIT_WINDOW = \block_fragenfilter\search::RATE_LIMIT_WINDOW;
-
-    /** Absolute maximum number of returned results (alias of the search module). */
-    const MAX_RESULT_LIMIT = \block_fragenfilter\search::MAX_RESULT_LIMIT;
-
-    /** Default result limit when the caller does not provide one. */
-    const DEFAULT_RESULT_LIMIT = 200;
-
     /**
      * Validates the caller context without retaining an anonymous guest login.
      *
@@ -299,8 +287,6 @@ class block_fragenfilter_external extends external_api {
      * @return array Export file information.
      */
     public static function export_questions(string $questionids, string $format, int $contextid): array {
-        global $CFG, $DB;
-
         $params = self::validate_parameters(self::export_questions_parameters(), [
             'questionids' => $questionids,
             'format' => $format,
@@ -363,7 +349,6 @@ class block_fragenfilter_external extends external_api {
         );
 
         self::validate_search_context($params['contextid']);
-        $sysctx = context_system::instance();
 
         $formats = implode(',', \block_fragenfilter\question_export::enabled_formats());
 

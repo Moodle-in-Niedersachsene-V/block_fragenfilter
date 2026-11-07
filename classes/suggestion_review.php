@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * Review of AI tag suggestions: visibility, authorisation and state changes.
+ * Review of AI tag suggestions: which suggestions a user may see and review.
  *
  * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
@@ -24,11 +24,8 @@
 
 namespace block_fragenfilter;
 
-use block_fragenfilter\event\suggestion_reviewed;
-use block_fragenfilter\task\generate_tags;
-
 /**
- * Decides which suggestions a reviewer may see and applies review actions.
+ * Decides which suggestions a reviewer may see; state changes live in tag_suggestion.
  */
 class suggestion_review {
     /** @var string[] Actions that change suggestions. */
@@ -66,46 +63,5 @@ class suggestion_review {
      */
     public static function pending(array $records): array {
         return array_filter($records, static fn($row) => $row->status === 'pending');
-    }
-
-    /**
-     * Applies one review action to the allowed pending suggestions.
-     *
-     * @param string      $action    One of self::ACTIONS.
-     * @param \stdClass[] $pending   Pending suggestions the user may review.
-     * @param int         $suggestionid Suggestion id for single actions.
-     * @throws \invalid_parameter_exception For an unknown action.
-     * @throws \moodle_exception If a single suggestion is not available to the user.
-     */
-    public static function review(string $action, array $pending, int $suggestionid): void {
-        global $DB;
-
-        if (!in_array($action, self::ACTIONS, true)) {
-            throw new \invalid_parameter_exception('Unknown review action.');
-        }
-        $bulk = in_array($action, ['approveall', 'rejectall'], true);
-        if (!$bulk && !isset($pending[$suggestionid])) {
-            throw new \moodle_exception('error_review_unavailable', 'block_fragenfilter');
-        }
-        $selected = $bulk ? $pending : [$pending[$suggestionid]];
-        $transaction = $DB->start_delegated_transaction();
-        foreach ($selected as $row) {
-            if (in_array($action, ['approve', 'approveall'], true)) {
-                $tags = array_filter(array_map('trim', explode(',', $row->tags)));
-                generate_tags::apply_tags((int)$row->questionid, $tags);
-                $status = 'applied';
-            } else {
-                $status = 'rejected';
-            }
-            $DB->update_record('block_fragenfilter_tag_pending', (object)[
-                'id' => $row->id, 'status' => $status, 'timemodified' => time(),
-            ]);
-            suggestion_reviewed::create([
-                'objectid' => $row->id,
-                'context' => \context::instance_by_id($row->contextid),
-                'other' => ['status' => $status],
-            ])->trigger();
-        }
-        $transaction->allow_commit();
     }
 }

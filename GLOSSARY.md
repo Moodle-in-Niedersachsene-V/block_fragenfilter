@@ -90,4 +90,4 @@ Code: `suggestion`
 **Prüfung**:
 Die Freigabe oder Ablehnung eines Tag-Vorschlags durch eine berechtigte Person (`reviewtags`); jede Prüfung löst ein Ereignis aus.
 _Avoid_: Review, Moderation
-Code: `suggestion_review`, Ereignis `suggestion_reviewed`
+Code: `tag_suggestion` (Anlegen, Anwenden, Prüfen), `suggestion_review` (Sichtbarkeit, Abfrage), Ereignis `suggestion_reviewed`

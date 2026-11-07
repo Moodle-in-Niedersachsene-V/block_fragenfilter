@@ -50,7 +50,7 @@ $pending = \block_fragenfilter\suggestion_review::pending($records);
 
 if ($action) {
     require_sesskey();
-    \block_fragenfilter\suggestion_review::review($action, $pending, $suggestionid);
+    \block_fragenfilter\tag_suggestion::review($action, $pending, $suggestionid);
     redirect($PAGE->url);
 }
 

@@ -46,7 +46,7 @@ final class rating_module_test extends \advanced_testcase {
         $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         return $generator->create_question('essay', null, ['category' => $category->id]);
     }
 

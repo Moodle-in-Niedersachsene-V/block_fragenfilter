@@ -17,10 +17,10 @@
 namespace block_fragenfilter;
 
 /**
- * The preview role of the pool accounts of block_kursfilter.
+ * The preview role for pool accounts used by block_fragenfilter.
  *
- * The role allows the question preview and the export (ADR 0002). Block_kursfilter owns
- * the pool accounts; this class only gives them the role.
+ * The role allows the question preview and the export (ADR 0002). Only the
+ * dedicated fragenfilter_pool accounts receive this role.
  *
  * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
@@ -33,7 +33,7 @@ final class preview_role {
     /**
      * Create the preview role if missing.
      *
-     * The role only allows moodle/question:usemine and the export, so pool accounts can open
+     * The role grants block access and export. Question capabilities are scoped to the target bank so pool accounts can open
      * the question preview without receiving additional permissions. An existing role is
      * left unchanged, because administrators may have adjusted its capabilities.
      *
@@ -55,30 +55,33 @@ final class preview_role {
             ''
         );
         $systemcontext = \context_system::instance();
-        set_role_contextlevels($roleid, [CONTEXT_SYSTEM]);
-        assign_capability('moodle/question:usemine', CAP_ALLOW, $roleid, $systemcontext->id, true);
+        // CONTEXT_MODULE is required for Moodle 5+ mod_qbank: question_require_capability_on()
+        // checks the capability in the module context of the question's question bank.
+        set_role_contextlevels($roleid, [CONTEXT_SYSTEM, CONTEXT_MODULE]);
+        assign_capability('block/fragenfilter:view', CAP_ALLOW, $roleid, $systemcontext->id, true);
         assign_capability('block/fragenfilter:export', CAP_ALLOW, $roleid, $systemcontext->id, true);
         return (int)$roleid;
     }
 
     /**
-     * Whether the account is a pool account of block_kursfilter.
+     * Whether the account is any pool account recognised by block_fragenfilter.
      *
-     * Pool accounts are confirmed manual accounts with a pool username. A self-registered
-     * account with such a name is unconfirmed and uses another authentication.
+     * Accepts only canonical fragenfilter_pool account names.
+     * Pool accounts are confirmed manual accounts; a self-registered account with a matching
+     * username would be unconfirmed or use a different auth method.
      *
      * @param \stdClass $user User record.
      * @return bool
      */
     public static function is_pool_account(\stdClass $user): bool {
-        return $user->auth === 'manual'
-            && !empty($user->confirmed)
-            && empty($user->deleted)
-            && in_array(
-                $user->username,
-                \block_kursfilter\pool_manager::get_pool_usernames(\block_kursfilter\pool_manager::POOL_SIZE_MAX),
-                true
-            );
+        if ($user->auth !== 'manual' || empty($user->confirmed) || !empty($user->deleted)) {
+            return false;
+        }
+        // Own fragenfilter pool accounts.
+        if (\block_fragenfilter\pool_manager::is_pool_account($user->username)) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -99,12 +102,19 @@ final class preview_role {
 
     /**
      * Give the role to all existing pool accounts, up to the hard cap of the pool size.
+     *
+     * Covers the dedicated fragenfilter_pool accounts.
      */
     public static function assign_to_pool_accounts(): void {
         global $DB;
 
         self::ensure();
-        $usernames = \block_kursfilter\pool_manager::get_pool_usernames(\block_kursfilter\pool_manager::POOL_SIZE_MAX);
+
+        // Own fragenfilter pool accounts.
+        $usernames = \block_fragenfilter\pool_manager::get_pool_usernames(
+            \block_fragenfilter\pool_manager::POOL_SIZE_MAX
+        );
+
         foreach ($DB->get_records_list('user', 'username', $usernames) as $user) {
             self::assign_to_pool_account($user);
         }

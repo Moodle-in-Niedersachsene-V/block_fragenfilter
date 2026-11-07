@@ -61,6 +61,7 @@ final class request_test extends \advanced_testcase {
         $this->resetAfterTest();
         // The materials hub exposes search to anonymous visitors.
         set_config('forcelogin', 0);
+        set_config('defaulthomepage', HOMEPAGE_SITE);
         // The web server process runs with developer debugging shown, so notices reach the response.
         set_config('debug', DEBUG_DEVELOPER);
         set_config('debugdisplay', 1);
@@ -246,7 +247,7 @@ final class request_test extends \advanced_testcase {
         global $DB;
 
         $question = $this->create_question();
-        $user = $DB->get_record('user', ['username' => 'kursfilter_pool01'], '*', MUST_EXIST);
+        $user = $DB->get_record('user', ['username' => 'fragenfilter_pool01'], '*', MUST_EXIST);
         update_internal_user_password($user, $this->password);
         $request = [
             'index' => 0, 'methodname' => 'block_fragenfilter_rate_question',
@@ -434,7 +435,7 @@ final class request_test extends \advanced_testcase {
         $category = $generator->create_question_category();
         $this->make_category_visible($category);
         $question = $generator->create_question('truefalse', null, ['category' => $category->id]);
-        $pooluser = $DB->get_record('user', ['username' => 'kursfilter_pool01'], '*', MUST_EXIST);
+        $pooluser = $DB->get_record('user', ['username' => 'fragenfilter_pool01'], '*', MUST_EXIST);
         $loginpage = $this->preview_request([], false, '/login/index.php');
         $this->assertSame(1, preg_match('/"sesskey":"([A-Za-z0-9]+)"/', $loginpage, $matches));
         $sesskey = $matches[1];
@@ -520,7 +521,7 @@ final class request_test extends \advanced_testcase {
         global $DB;
 
         [$insql, $params] = $DB->get_in_or_equal(
-            \block_kursfilter\pool_manager::get_pool_usernames(\block_kursfilter\pool_manager::POOL_SIZE_MAX)
+            \block_fragenfilter\pool_manager::get_pool_usernames(\block_fragenfilter\pool_manager::POOL_SIZE_MAX)
         );
         return $DB->count_records_sql(
             "SELECT COUNT(s.id) FROM {sessions} s JOIN {user} u ON u.id = s.userid WHERE u.username $insql",
@@ -547,6 +548,15 @@ final class request_test extends \advanced_testcase {
      * @param \stdClass $category Question category.
      */
     private function make_category_visible(\stdClass $category): void {
+        global $DB;
+        $pool = $DB->get_record('course_categories', ['name' => 'Aufgabenpool']);
+        if (!$pool) {
+            $pool = $this->getDataGenerator()->create_category(['name' => 'Aufgabenpool']);
+        }
+        $course = $this->getDataGenerator()->create_course(['category' => $pool->id]);
+        $bank = $this->getDataGenerator()->create_module('qbank', ['course' => $course->id]);
+        $category->contextid = \context_module::instance($bank->cmid)->id;
+        $DB->set_field('question_categories', 'contextid', $category->contextid, ['id' => $category->id]);
         foreach (['guestroleid', 'defaultuserroleid'] as $setting) {
             assign_capability('moodle/question:viewall', CAP_ALLOW, get_config('core', $setting), $category->contextid);
         }
@@ -589,14 +599,14 @@ final class request_test extends \advanced_testcase {
             );
         }
 
-        $this->assertStringStartsWith('kursfilter_pool', $logins['198.51.100.1']);
-        $this->assertStringStartsWith('kursfilter_pool', $logins['198.51.100.2']);
+        $this->assertStringStartsWith('fragenfilter_pool', $logins['198.51.100.1']);
+        $this->assertStringStartsWith('fragenfilter_pool', $logins['198.51.100.2']);
         $this->assertNotEquals($logins['198.51.100.1'], $logins['198.51.100.2']);
     }
 
     public function test_preview_shows_a_notice_when_the_pool_is_full(): void {
         $question = $this->create_question();
-        foreach (\block_kursfilter\pool_manager::get_pool_usernames() as $username) {
+        foreach (\block_fragenfilter\pool_manager::get_pool_usernames() as $username) {
             $this->occupy_pool_account($username, '203.0.113.9');
         }
         $occupied = $this->count_pool_sessions();
@@ -609,10 +619,10 @@ final class request_test extends \advanced_testcase {
         $this->assertSame($occupied, $this->count_pool_sessions());
     }
 
-    public function test_preview_shows_a_notice_when_the_address_already_has_a_preview(): void {
+    public function test_preview_allows_another_visitor_on_the_same_address(): void {
         $question = $this->create_question();
         set_config('getremoteaddrconf', GETREMOTEADDR_SKIP_HTTP_CLIENT_IP);
-        $this->occupy_pool_account('kursfilter_pool01', '198.51.100.7');
+        $this->occupy_pool_account('fragenfilter_pool01', '198.51.100.7');
         $headers = ['X-Forwarded-For: 198.51.100.7'];
         $sesskey = $this->visitor_sesskey($headers);
 
@@ -623,22 +633,21 @@ final class request_test extends \advanced_testcase {
             $headers
         );
 
-        $this->assertStringContainsString(get_string('preview_in_use', 'block_fragenfilter'), $body);
-        $this->assertStringNotContainsString('qf_pool_login_done', $body);
-        $this->assertSame(1, $this->count_pool_sessions());
+        $this->assertStringContainsString('qf_pool_login_done', $body);
+        $this->assertSame(2, $this->count_pool_sessions());
     }
 
     public function test_preview_gives_the_preview_role_to_a_pool_account_created_later(): void {
         global $DB;
 
         $question = $this->create_question();
-        set_config('poolsize', 11, 'block_kursfilter');
-        \block_kursfilter\pool_manager::create_pool_accounts();
-        $latest = $DB->get_record('user', ['username' => 'kursfilter_pool11'], '*', MUST_EXIST);
+        set_config('poolsize', 11, 'block_fragenfilter');
+        \block_fragenfilter\pool_manager::create_pool_accounts();
+        $latest = $DB->get_record('user', ['username' => 'fragenfilter_pool11'], '*', MUST_EXIST);
         $roleid = $DB->get_field('role', 'id', ['shortname' => 'fragenfilter_preview'], MUST_EXIST);
         $systemcontextid = \context_system::instance()->id;
         $this->assertFalse(user_has_role_assignment($latest->id, $roleid, $systemcontextid));
-        foreach (\block_kursfilter\pool_manager::get_pool_usernames(10) as $username) {
+        foreach (\block_fragenfilter\pool_manager::get_pool_usernames(10) as $username) {
             $this->occupy_pool_account($username, '203.0.113.9');
         }
         $sesskey = $this->visitor_sesskey();
@@ -656,13 +665,13 @@ final class request_test extends \advanced_testcase {
         $body = $this->preview_request(['qid' => $question->id, 'sesskey' => $sesskey], true);
         $this->assertStringContainsString('qf_pool_login_done', $body);
 
-        // The guard belongs to block_kursfilter; this proves it holds in the combined installation.
+        // The Fragenfilter guard protects its own pool, even alongside other plugins.
         foreach (['/user/profile.php', '/user/preferences.php', '/login/change_password.php'] as $path) {
             $this->preview_request([], false, $path);
             $this->assertSame($this->baseurl . '/', $this->redirecturl, $path);
         }
         $this->preview_request([], false, '/my/');
-        $this->assertNotSame($this->baseurl . '/', $this->redirecturl);
+        $this->assertSame($this->baseurl . '/', $this->redirecturl);
 
         $this->start_new_visitor();
         $user = $this->getDataGenerator()->create_user(['password' => $this->password]);
@@ -725,7 +734,7 @@ final class request_test extends \advanced_testcase {
             'password' => $this->password,
             'logintoken' => $matches[1],
         ], true, '/login/index.php');
-        $page = $this->preview_request([], false, '/my/');
+        $page = $this->preview_request([], false, '/');
         $this->assertSame(1, preg_match('/"sesskey":"([A-Za-z0-9]+)"/', $page, $matches));
         return $matches[1];
     }
@@ -863,7 +872,7 @@ final class request_test extends \advanced_testcase {
     public function test_anonymous_search_returns_a_visible_question(): void {
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         $question = $generator->create_question('truefalse', null, [
             'category' => $category->id,
             'name' => 'Visible tracer question',
@@ -1000,7 +1009,7 @@ final class request_test extends \advanced_testcase {
     public function test_export_download_is_bound_to_the_exporting_session(): void {
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         $question = $generator->create_question('truefalse', null, [
             'category' => $category->id, 'name' => 'Session private export',
         ]);

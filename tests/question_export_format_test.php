@@ -39,7 +39,9 @@ final class question_export_format_test extends \advanced_testcase {
         $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category(['name' => 'Fixture']);
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category(
+            ['name' => 'Fixture']
+        );
         $questions = [
             $generator->create_question('shortanswer', null, [
                 'category' => $category->id, 'name' => 'Kurzantwort "Hauptstadt"',

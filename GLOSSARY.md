@@ -54,7 +54,7 @@ _Avoid_: Gast, Nutzer
 Code: `visitor`
 
 **Pool-Konto**:
-Ein vom Kursfilter verwaltetes Moodle-Konto, das genau einem Besucher für eine Vorschau überlassen wird; danach darf der Besucher auch exportieren.
+Ein vom Fragenfilter verwaltetes Moodle-Konto, das einem Besucher für eine Vorschau überlassen wird; danach darf der Besucher auch exportieren.
 _Avoid_: Pool-Nutzer, Gastnutzer, Gastkonto
 Code: `pool account`
 

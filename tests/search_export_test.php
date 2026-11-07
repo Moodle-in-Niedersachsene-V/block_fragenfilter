@@ -37,7 +37,8 @@ final class search_export_test extends \advanced_testcase {
         $this->resetAfterTest();
         $this->setAdminUser();
         $user = $this->getDataGenerator()->create_user();
-        $course = $this->getDataGenerator()->create_course();
+        $pool = $this->getDataGenerator()->create_category(['name' => 'Aufgabenpool']);
+        $course = $this->getDataGenerator()->create_course(['category' => $pool->id]);
         $othercourse = $this->getDataGenerator()->create_course();
         $bank = $this->getDataGenerator()->create_module('qbank', ['course' => $course->id]);
         $system = \context_system::instance();
@@ -67,8 +68,8 @@ final class search_export_test extends \advanced_testcase {
         $limited = \block_fragenfilter_external::search_questions('Limit tracer', '', '', '', '', 'course', $coursectx->id, 1);
         $this->assertSame([(int)$questions[$bankctx->id]->id], array_column($limited['questions'], 'id'));
         foreach (
-            ['system' => [$system->id], 'course' => [$coursectx->id, $bankctx->id],
-                'all' => array_keys($questions)] as $scope => $contextids
+            ['system' => [], 'course' => [$bankctx->id],
+                'all' => [$bankctx->id]] as $scope => $contextids
         ) {
             $result = \block_fragenfilter_external::search_questions('', '', '', '', '', $scope, $coursectx->id, 200);
             $result = \external_api::clean_returnvalue(\block_fragenfilter_external::search_questions_returns(), $result);
@@ -80,8 +81,8 @@ final class search_export_test extends \advanced_testcase {
         $this->assertSame(['truefalse'], array_column($types['qtypes'], 'key'));
         $categories = \block_fragenfilter_external::get_categories('course', $coursectx->id);
         $categories = \external_api::clean_returnvalue(\block_fragenfilter_external::get_categories_returns(), $categories);
-        $this->assertCount(2, $categories['categories']);
-        $this->assertSame([1, 1], array_column($categories['categories'], 'questioncount'));
+        $this->assertCount(1, $categories['categories']);
+        $this->assertSame([1], array_column($categories['categories'], 'questioncount'));
         assign_capability('moodle/question:viewall', CAP_ALLOW, $role, $bankctx->id);
         accesslib_clear_all_caches_for_unit_testing();
         $result = \block_fragenfilter_external::search_questions('', '', '', '', '', 'course', $coursectx->id, 200);
@@ -100,7 +101,7 @@ final class search_export_test extends \advanced_testcase {
         $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         $generator->create_question('truefalse', null, ['category' => $category->id]);
         $user = $this->getDataGenerator()->create_user();
         $this->setUser($user);
@@ -197,7 +198,7 @@ final class search_export_test extends \advanced_testcase {
             $this->assertSame('invalidrecord', $e->errorcode);
         }
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         $questions = [];
         for ($i = 0; $i < 202; $i++) {
             $questions[] = $generator->create_question('truefalse', null, [
@@ -227,7 +228,7 @@ final class search_export_test extends \advanced_testcase {
         $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $cat = $generator->create_question_category();
+        $cat = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         $name = "Literal 50%_ O'Reilly \\ example";
         $question = $generator->create_question('truefalse', null, ['category' => $cat->id, 'name' => $name]);
         $generator->create_question('truefalse', null, ['category' => $cat->id, 'name' => 'Unrelated question']);
@@ -264,7 +265,7 @@ final class search_export_test extends \advanced_testcase {
         $this->setAdminUser();
         $user = $this->getDataGenerator()->create_user();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         $own = $generator->create_question('truefalse', null, [
             'category' => $category->id, 'createdby' => $user->id, 'name' => 'Own export',
         ]);
@@ -320,7 +321,9 @@ final class search_export_test extends \advanced_testcase {
         $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category(['name' => 'Sample category']);
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category(
+            ['name' => 'Sample category']
+        );
         $question = $generator->create_question('truefalse', null, [
             'category' => $category->id, 'name' => 'Sample "quoted", question',
             'questiontext' => ['text' => '<p>The sky is blue.</p>', 'format' => FORMAT_HTML], 'correctanswer' => 1,

@@ -3,7 +3,7 @@
 ## Zusammenfassung
 
 - **Umbenennung:** Komponente heißt jetzt `block_fragenfilter` (früher `block_questionfilter`). Zip: `block_fragenfilter_<build>.zip`, Wurzelordner `fragenfilter/`. Moodle sieht das als neues Plugin; das alte muss vorher deinstalliert werden.
-- **Kursfilter:** `block_kursfilter` mindestens Build 2026101501 (Stand `main`, inkl. #22/#23), zusammen mit diesem Release.
+- **Eigener Pool:** Fragenfilter benötigt keinen Kursfilter. Upgrade legt eigene Konten an; Aufgabenpool-Fragebanken und Vorschau prüfen (ADR 0004).
 - **Build-Nummern:** live `block_questionfilter` 2026101211, `block_kursfilter` 2026101028. Neu: `block_fragenfilter` 2026101703, `block_kursfilter` 2026101501. Beide höher als live.
 - **Upgrade-Schritte:** laufen nicht automatisch. Beim Hochladen im File-Picker jeden Teilschritt mit „OK“ bestätigen (kein Konsolen-Upgrade nötig).
 - **Datenschutz:** kein AV-Vertrag nötig, siehe `docs/datenschutz.md`.

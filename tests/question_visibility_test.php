@@ -83,7 +83,8 @@ final class question_visibility_test extends \advanced_testcase {
         $this->resetAfterTest();
         $owner = $this->getDataGenerator()->create_user();
         $other = $this->getDataGenerator()->create_user();
-        $course = $this->getDataGenerator()->create_course();
+        $pool = $this->getDataGenerator()->create_category(['name' => 'Aufgabenpool']);
+        $course = $this->getDataGenerator()->create_course(['category' => $pool->id]);
         $bank = $this->getDataGenerator()->create_module('qbank', ['course' => $course->id]);
         $bankctx = \context_module::instance($bank->cmid);
         $mine = $this->make_question($bankctx, $owner->id, 'Own');
@@ -101,7 +102,8 @@ final class question_visibility_test extends \advanced_testcase {
         $this->resetAfterTest();
         $owner = $this->getDataGenerator()->create_user();
         $viewer = $this->getDataGenerator()->create_user();
-        $course = $this->getDataGenerator()->create_course();
+        $pool = $this->getDataGenerator()->create_category(['name' => 'Aufgabenpool']);
+        $course = $this->getDataGenerator()->create_course(['category' => $pool->id]);
         $bank = $this->getDataGenerator()->create_module('qbank', ['course' => $course->id]);
         $bankctx = \context_module::instance($bank->cmid);
         $first = $this->make_question($bankctx, $owner->id, 'First');
@@ -115,10 +117,11 @@ final class question_visibility_test extends \advanced_testcase {
         );
     }
 
-    public function test_course_scope_covers_course_questions_and_not_other_courses(): void {
+    public function test_legacy_course_questions_are_not_published(): void {
         $this->resetAfterTest();
         $viewer = $this->getDataGenerator()->create_user();
-        $course = $this->getDataGenerator()->create_course();
+        $pool = $this->getDataGenerator()->create_category(['name' => 'Aufgabenpool']);
+        $course = $this->getDataGenerator()->create_course(['category' => $pool->id]);
         $othercourse = $this->getDataGenerator()->create_course();
         $coursectx = \context_course::instance($course->id);
         $otherctx = \context_course::instance($othercourse->id);
@@ -128,14 +131,14 @@ final class question_visibility_test extends \advanced_testcase {
         $this->grant('moodle/question:viewall', $otherctx, $viewer);
         $this->setUser($viewer);
 
-        $this->assertSame([(int)$inside->id], $this->visible_in_scope('course', $coursectx));
+        $this->assertSame([], $this->visible_in_scope('course', $coursectx));
         $this->assertEqualsCanonicalizing(
-            [(int)$inside->id, (int)$outside->id],
+            [],
             $this->visible_in_scope('all', $coursectx)
         );
     }
 
-    public function test_system_scope_covers_only_the_system_context(): void {
+    public function test_legacy_system_questions_are_not_published(): void {
         $this->resetAfterTest();
         $this->setAdminUser();
         $system = \context_system::instance();
@@ -143,15 +146,16 @@ final class question_visibility_test extends \advanced_testcase {
         $insystem = $this->make_question($system, 2, 'System');
         $incourse = $this->make_question($coursectx, 2, 'Course');
 
-        $this->assertSame([(int)$insystem->id], $this->visible_in_scope('system', $system));
-        $this->assertContains((int)$incourse->id, $this->visible_in_scope('all', $system));
+        $this->assertSame([], $this->visible_in_scope('system', $system));
+        $this->assertNotContains((int)$incourse->id, $this->visible_in_scope('all', $system));
     }
 
     public function test_questions_that_are_not_ready_or_are_subquestions_are_invisible(): void {
         global $DB;
         $this->resetAfterTest();
         $this->setAdminUser();
-        $system = \context_system::instance();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
+        $system = \context::instance_by_id($category->contextid);
         $ready = $this->make_question($system, 2, 'Ready');
         $draft = $this->make_question($system, 2, 'Draft');
         $sub = $this->make_question($system, 2, 'Subquestion');
@@ -165,7 +169,7 @@ final class question_visibility_test extends \advanced_testcase {
             [(int)$ready->id],
             question_visibility::visible_ids([(int)$draft->id, (int)$sub->id, (int)$ready->id])
         );
-        $this->assertSame([(int)$ready->id], $this->visible_in_scope('system', $system));
+        $this->assertSame([(int)$ready->id], $this->visible_in_scope('all', $system));
     }
 
     public function test_unknown_ids_and_empty_input_are_not_visible(): void {
@@ -175,6 +179,22 @@ final class question_visibility_test extends \advanced_testcase {
         $this->assertFalse(question_visibility::is_visible(999999));
         $this->assertSame([], question_visibility::visible_ids([]));
         $this->assertSame([], question_visibility::visible_ids([999999]));
+    }
+
+    public function test_public_visitors_only_see_questions_in_the_tasks_category_tree(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $category = $this->getDataGenerator()->create_category(['name' => 'Aufgabenpool']);
+        $child = $this->getDataGenerator()->create_category(['parent' => $category->id]);
+        $course = $this->getDataGenerator()->create_course(['category' => $child->id]);
+        $bank = $this->getDataGenerator()->create_module('qbank', ['course' => $course->id]);
+        $inside = $this->make_question(\context_module::instance($bank->cmid), 2, 'Published');
+        $outside = $this->make_question(\context_system::instance(), 2, 'Private');
+        $this->setGuestUser();
+
+        $this->assertSame([(int)$inside->id], $this->visible_in_scope('all', \context_system::instance()));
+        $this->assertTrue(question_visibility::is_visible((int)$inside->id));
+        $this->assertFalse(question_visibility::is_visible((int)$outside->id));
     }
 
     public function test_unknown_scope_is_rejected_once_by_the_query(): void {

@@ -102,8 +102,8 @@ final class visitor_access_test extends \advanced_testcase {
         global $DB;
         // Leftover pool accounts may exist in the test database, so take the first free pool name.
         $free = array_values(array_diff(
-            \block_kursfilter\pool_manager::get_pool_usernames(\block_kursfilter\pool_manager::POOL_SIZE_MAX),
-            $DB->get_fieldset_select('user', 'username', 'username LIKE ?', ['kursfilter_pool%'])
+            \block_fragenfilter\pool_manager::get_pool_usernames(\block_fragenfilter\pool_manager::POOL_SIZE_MAX),
+            $DB->get_fieldset_select('user', 'username', 'username LIKE ?', ['fragenfilter_pool%'])
         ));
         $pool = $this->getDataGenerator()->create_user([
             'username' => $free[0], 'auth' => 'manual', 'confirmed' => 1,

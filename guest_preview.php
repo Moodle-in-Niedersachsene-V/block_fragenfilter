@@ -17,9 +17,8 @@
 /**
  * Preview endpoint for block_fragenfilter.
  *
- * Starts the question preview. block_kursfilter selects and occupies a pool account and
- * logs the visitor in (ADR 0002); a real login is kept. No require_login(): this endpoint
- * is intentionally public.
+ * Starts the question preview with dedicated fragenfilter_pool accounts (ADR 0002).
+ * Existing logins are kept. POST and sesskey protect the public pool-login entry.
  *
  * Usage: POST /blocks/fragenfilter/guest_preview.php, body qid=42&sesskey=...
  *
@@ -37,7 +36,8 @@ if (!data_submitted()) {
 }
 require_sesskey();
 
-// The question must exist and be visible to the visitor, as in the search; otherwise no account is taken.
+// The question must exist and be visible to the current visitor; otherwise we do
+// not consume a pool slot.
 if (!\block_fragenfilter\question_visibility::is_visible($qid)) {
     $PAGE->set_context(context_system::instance());
     $PAGE->set_url(new moodle_url('/blocks/fragenfilter/guest_preview.php'));
@@ -50,44 +50,33 @@ if (!\block_fragenfilter\question_visibility::is_visible($qid)) {
     exit;
 }
 
-$previewurl = new moodle_url('/question/bank/previewquestion/preview.php', ['id' => $qid]);
-$hasreallogin = \block_fragenfilter\visitor_access::has_real_login();
-$outcome = \block_kursfilter\preview_starter::start(null, $hasreallogin);
-
-$notices = [
-    \block_kursfilter\preview_starter::POOL_FULL => 'preview_pool_full',
-    \block_kursfilter\preview_starter::IP_IN_USE => 'preview_in_use',
-];
-if (isset($notices[$outcome])) {
+$preview = \block_fragenfilter\preview::start($qid);
+if ($preview === null) {
     $PAGE->set_context(context_system::instance());
     $PAGE->set_url(new moodle_url('/blocks/fragenfilter/guest_preview.php'));
     echo $OUTPUT->header();
     echo $OUTPUT->notification(
-        get_string($notices[$outcome], 'block_fragenfilter'),
+        get_string('preview_pool_full', 'block_fragenfilter'),
         \core\output\notification::NOTIFY_WARNING
     );
     echo $OUTPUT->footer();
     exit;
 }
-
-// Pool accounts that block_kursfilter created after the last upgrade do not hold the preview role yet.
-\block_fragenfilter\preview_role::assign_to_pool_account($USER);
-
-if ($outcome === \block_kursfilter\preview_starter::REDIRECT) {
+$previewurl = $preview['url'];
+if (!$preview['newlogin']) {
     redirect($previewurl);
 }
 
-// The pool account is logged in: notify the opener tab via postMessage so
-// refreshCapabilities() shows the export buttons, then open the question preview.
+// Notify the opener tab via postMessage so refreshCapabilities() activates the export buttons.
+// Then navigate this popup window to the actual question preview.
 $previewurlstring = $previewurl->out(false);
+$wwwrootjson      = json_encode($CFG->wwwroot);
+$previewurljson   = json_encode($previewurlstring);
 
 $PAGE->set_context(context_system::instance());
 $PAGE->set_url(new moodle_url('/blocks/fragenfilter/guest_preview.php', ['qid' => $qid]));
 $PAGE->set_pagelayout('embedded');
 echo $OUTPUT->header();
-
-$wwwrootjson  = json_encode($CFG->wwwroot);
-$previewurljson = json_encode($previewurlstring);
 
 echo <<<HTML
 <script>

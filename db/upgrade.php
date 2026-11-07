@@ -33,6 +33,32 @@ function xmldb_block_fragenfilter_upgrade(int $oldversion): bool {
     global $DB;
     $dbman = $DB->get_manager();
 
+    // Rename tables and migrate config from the old plugin name block_questionfilter.
+    // This runs unconditionally (no version guard) so that a system upgraded from
+    // block_questionfilter 1.x to block_fragenfilter picks up the data on the very
+    // first upgrade run, regardless of which build number was installed before.
+    $renames = [
+        'block_questionfilter_ratings'     => 'block_fragenfilter_ratings',
+        'block_questionfilter_tag_pending' => 'block_fragenfilter_tag_pending',
+    ];
+    foreach ($renames as $oldname => $newname) {
+        $oldtable = new xmldb_table($oldname);
+        $newtable = new xmldb_table($newname);
+        if ($dbman->table_exists($oldtable) && !$dbman->table_exists($newtable)) {
+            $dbman->rename_table($oldtable, $newname);
+        }
+    }
+
+    // Migrate all plugin config values from the old component name.
+    $oldconfigs = $DB->get_records('config_plugins', ['plugin' => 'block_questionfilter']);
+    foreach ($oldconfigs as $row) {
+        // Only copy if no value is already set under the new name.
+        if (get_config('block_fragenfilter', $row->name) === false) {
+            set_config($row->name, $row->value, 'block_fragenfilter');
+        }
+        unset_config($row->name, 'block_questionfilter');
+    }
+
     // Transfer values from old configuration keys to the current keys.
     $migrations = [
         'nivelevel_levels' => 'difficulty_levels',
@@ -152,6 +178,156 @@ function xmldb_block_fragenfilter_upgrade(int $oldversion): bool {
             $dbman->add_index($table, $index);
         }
         upgrade_block_savepoint(true, 2026101605, 'fragenfilter');
+    }
+
+    // Build 2026102104: add moodle/question:viewmine to the preview role so that
+    // question_visibility::sql() actually finds questions for pool accounts.
+    // (The role was previously missing this capability, so pool users saw zero results.)
+    if ($oldversion < 2026102104) {
+        $role = $DB->get_record('role', ['shortname' => 'fragenfilter_preview']);
+        if ($role) {
+            $sysctx = context_system::instance();
+            assign_capability('moodle/question:viewmine', CAP_ALLOW, $role->id, $sysctx->id, true);
+        }
+        upgrade_block_savepoint(true, 2026102104, 'fragenfilter');
+    }
+
+    // Build 2026102108: add block/fragenfilter:view to the preview role so that
+    // pool accounts can use the search block after occupying an account via guest_preview.
+    if ($oldversion < 2026102108) {
+        $role = $DB->get_record('role', ['shortname' => 'fragenfilter_preview']);
+        if ($role) {
+            $sysctx = context_system::instance();
+            assign_capability('block/fragenfilter:view', CAP_ALLOW, $role->id, $sysctx->id, true);
+        }
+        upgrade_block_savepoint(true, 2026102108, 'fragenfilter');
+    }
+
+    // Build 2026102201: consolidate the preview role.
+    //
+    // Systems upgraded from block_questionfilter have two roles:
+    // - questionfilter_preview  (the old one, with usemine + export only)
+    // - fragenfilter_preview    (created fresh by block_fragenfilter, with the full set)
+    //
+    // We delete the old orphan role and make sure fragenfilter_preview has all capabilities.
+    // If only the old role exists (no fragenfilter_preview yet), we rename it.
+    if ($oldversion < 2026102201) {
+        $sysctx = context_system::instance();
+
+        $oldrole  = $DB->get_record('role', ['shortname' => 'questionfilter_preview']);
+        $newrole  = $DB->get_record('role', ['shortname' => 'fragenfilter_preview']);
+
+        if ($oldrole && $newrole) {
+            // Both exist: migrate any role assignments from the old role to the new one,
+            // then delete the old role so the unique constraint is no longer violated.
+            $existing = $DB->get_records('role_assignments', ['roleid' => $newrole->id], '', 'userid,contextid');
+            $existingkeys = [];
+            foreach ($existing as $ra) {
+                $existingkeys[$ra->contextid . '_' . $ra->userid] = true;
+            }
+            foreach ($DB->get_records('role_assignments', ['roleid' => $oldrole->id]) as $ra) {
+                $key = $ra->contextid . '_' . $ra->userid;
+                if (!isset($existingkeys[$key])) {
+                    role_assign($newrole->id, $ra->userid, $ra->contextid);
+                }
+            }
+            delete_role($oldrole->id);
+            $role = $newrole;
+        } else if ($oldrole && !$newrole) {
+            // Only old role exists: rename it.
+            $oldrole->shortname = 'fragenfilter_preview';
+            $DB->update_record('role', $oldrole);
+            $role = $oldrole;
+        } else {
+            // Fragenfilter_preview already exists (normal case after clean install).
+            $role = $newrole;
+        }
+
+        if ($role) {
+            // Ensure all required capabilities are present (idempotent).
+            assign_capability('moodle/question:viewmine', CAP_ALLOW, $role->id, $sysctx->id, true);
+            assign_capability('moodle/question:useall', CAP_ALLOW, $role->id, $sysctx->id, true);
+            assign_capability('block/fragenfilter:view', CAP_ALLOW, $role->id, $sysctx->id, true);
+            assign_capability('block/fragenfilter:export', CAP_ALLOW, $role->id, $sysctx->id, true);
+        }
+
+        // Re-assign the (now consolidated) role to all pool accounts.
+        \block_fragenfilter\preview_role::assign_to_pool_accounts();
+
+        upgrade_block_savepoint(true, 2026102201, 'fragenfilter');
+    }
+
+    // Build 2026102206: create fragenfilter's own pool accounts (fragenfilter_pool01-10).
+    //
+    // This decouples block_fragenfilter from block_kursfilter for the question preview:
+    // - Own accounts use the 'fragenfilter_pool' username prefix.
+    // - No per-IP lock — multiple tabs from the same visitor are each served their own slot.
+    // - Sessions are cleaned up by the cleanup_pool_sessions scheduled task.
+    //
+    // The pool accounts are created here on upgrade. On a fresh install, db/install.php
+    // calls pool_manager::create_pool_accounts() directly.
+    if ($oldversion < 2026102206) {
+        \block_fragenfilter\pool_manager::create_pool_accounts();
+
+        // Ensure the preview role is assigned to both the new fragenfilter_pool* accounts
+        // and the legacy kursfilter_pool* accounts.
+        \block_fragenfilter\preview_role::assign_to_pool_accounts();
+
+        upgrade_block_savepoint(true, 2026102206, 'fragenfilter');
+    }
+
+    // Build 2026102207: allow the fragenfilter_preview role in CONTEXT_MODULE.
+    //
+    // Moodle 5+ with mod_qbank: question_require_capability_on() checks the
+    // question:usemine capability in the module context of the question bank activity
+    // (CONTEXT_MODULE = 70). The role was previously limited to CONTEXT_SYSTEM, so
+    // pool accounts received a "nopermissions (use)" error when opening the preview.
+    if ($oldversion < 2026102207) {
+        $role = $DB->get_record('role', ['shortname' => 'fragenfilter_preview']);
+        if ($role) {
+            // Remove existing context-level entries for this role and write the full set.
+            $DB->delete_records('role_context_levels', ['roleid' => $role->id]);
+            foreach ([CONTEXT_SYSTEM, CONTEXT_MODULE] as $contextlevel) {
+                $record = new \stdClass();
+                $record->roleid       = $role->id;
+                $record->contextlevel = $contextlevel;
+                $DB->insert_record('role_context_levels', $record, false, true);
+            }
+        }
+        upgrade_block_savepoint(true, 2026102207, 'fragenfilter');
+    }
+
+    // Build 2026102208: replace question:usemine with question:useall on the preview role.
+    //
+    // question:usemine only allows previewing questions the user created themselves.
+    // Pool accounts never create questions, so usemine always denied the preview.
+    // question:useall allows previewing any question in the context — this is safe
+    // because pool accounts only receive this role, not teacher or admin rights,
+    // and question_visibility::is_public_user() already limits which questions
+    // they can search and export.
+    if ($oldversion < 2026102208) {
+        $role = $DB->get_record('role', ['shortname' => 'fragenfilter_preview']);
+        if ($role) {
+            $sysctx = context_system::instance();
+            // Remove the old usemine capability (if present) and grant useall.
+            unassign_capability('moodle/question:usemine', $role->id, $sysctx->id);
+            assign_capability('moodle/question:useall', CAP_ALLOW, $role->id, $sysctx->id, true);
+        }
+        upgrade_block_savepoint(true, 2026102208, 'fragenfilter');
+    }
+
+    // Establish the independent pool even when upgrading from a newer refactor build.
+    if ($oldversion < 2026110704) {
+        \block_fragenfilter\pool_manager::create_pool_accounts();
+        $roleid = \block_fragenfilter\preview_role::ensure();
+        $systemcontext = context_system::instance();
+        foreach (['moodle/question:usemine', 'moodle/question:useall', 'moodle/question:viewmine'] as $capability) {
+            unassign_capability($capability, $roleid, $systemcontext->id);
+        }
+        assign_capability('block/fragenfilter:view', CAP_ALLOW, $roleid, $systemcontext->id, true);
+        assign_capability('block/fragenfilter:export', CAP_ALLOW, $roleid, $systemcontext->id, true);
+        \block_fragenfilter\preview_role::assign_to_pool_accounts();
+        upgrade_block_savepoint(true, 2026110704, 'fragenfilter');
     }
 
     return true;

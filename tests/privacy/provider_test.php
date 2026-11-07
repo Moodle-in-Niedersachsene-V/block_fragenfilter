@@ -82,7 +82,7 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         $this->resetAfterTest();
         $generator = $this->getDataGenerator();
         $question = $generator->get_plugin_generator('core_question')->create_question('truefalse', null, [
-            'category' => $generator->get_plugin_generator('core_question')->create_question_category()->id,
+            'category' => $generator->get_plugin_generator('block_fragenfilter')->create_public_category()->id,
         ]);
         $first = $generator->create_user();
         $second = $generator->create_user();

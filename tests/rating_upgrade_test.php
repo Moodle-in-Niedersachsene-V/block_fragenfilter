@@ -103,7 +103,7 @@ final class rating_upgrade_test extends \advanced_testcase {
             $this->assertSame('Mathematics', $DB->get_field('block_fragenfilter_tag_pending', 'tags', ['id' => $pendingid]));
             $this->assertTrue($DB->record_exists('question', ['id' => $question->id]));
             $this->assertTrue($DB->record_exists('user', ['id' => $user->id]));
-            $this->assertSame('2026101605', get_config('block_fragenfilter', 'version'));
+            $this->assertSame('2026110704', get_config('block_fragenfilter', 'version'));
             // A retried upgrade leaves the schema and historical votes unchanged.
             set_config('version', 2026101604, 'block_fragenfilter');
             xmldb_block_fragenfilter_upgrade(2026101604);

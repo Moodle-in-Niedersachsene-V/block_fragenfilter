@@ -275,7 +275,7 @@ final class ai_connector_test extends \advanced_testcase {
     private function create_questions(string $text): void {
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $category = $generator->create_question_category();
+        $category = $this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category();
         for ($i = 0; $i < 21; $i++) {
             $generator->create_question('truefalse', null, [
                 'category' => $category->id, 'name' => 'Question ' . $i,

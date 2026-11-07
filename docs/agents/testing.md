@@ -1,14 +1,22 @@
 # Testing
 
-PHPUnit läuft in einer isolierten Moodle-Testinstallation. CI prüft Moodle 5.1/PHP 8.3 mit MariaDB 10.11 und Moodle 5.2/PHP 8.4 mit PostgreSQL 16. Beide Jobs installieren `block_kursfilter` von `main` per `moodle-plugin-ci add-plugin` und führen `moodle-plugin-ci phpunit --fail-on-warning` aus. phpcs, phpdoc, savepoints, mustache und grunt bleiben aktiv.
+PHPUnit läuft in einer isolierten Moodle-Testinstallation. CI prüft Moodle 5.1/PHP 8.3 mit MariaDB 10.11 und Moodle 5.2/PHP 8.4 mit PostgreSQL 16. Beide Jobs führen `moodle-plugin-ci phpunit --fail-on-warning` aus. phpcs, phpdoc, savepoints, mustache und grunt bleiben aktiv.
 
-Der Fragenfilter hängt von `block_kursfilter` ab (`version.php`) und baut keine eigenen Pool-Sperren. `tests/preview_role_test.php` prüft, dass er keine eigenen Hook-Callbacks für Pool-Konten registriert, und die Vorschaurolle (Upgrade-Schritt, Ausschluss ähnlich benannter Konten). Die Pool-Grenzen selbst testet der Kursfilter.
+Der Fragenfilter verwendet eigene `fragenfilter_pool*`-Konten und eigene Hooks
+([ADR 0004](../adr/0004-independent-preview-pool-and-published-banks.md)). Die
+Vereinssuite prüft ihn ohne Kursfilter; der lokale HTTP-Lauf zusätzlich mit
+installiertem Kursfilter. `tests/generator/lib.php` erzeugt veröffentlichte
+Fragebanken im Aufgabenpool. Altkontexte außerhalb dieses Bereichs sind kein
+öffentlicher Fragenbestand.
+
+Historische Nachweise weiter unten beschreiben den damaligen Kursfilter-Vertrag;
+für die Integration gelten die aktuellen Tests und der Integrationsnachweis.
 
 ## Lokale Vorbereitung
 
 Keine gemeinsam genutzte Installation, Datenbank oder laufende Instanz verwenden. Eine eigene Moodle-Kopie, eine eigene leere Datenbank und eigene Datenverzeichnisse anlegen. PHP benötigt die Moodle-Erweiterungen, insbesondere cURL und den passenden Datenbanktreiber, sowie `max_input_vars=5000` und ausreichend Speicher (lokal 512 MB).
 
-1. Moodle 5.1 oder 5.2 in ein eigenes Verzeichnis auschecken, Abhängigkeiten mit `composer install` installieren. Dieses Repo nach `public/blocks/fragenfilter` verlinken oder kopieren, `block_kursfilter` von `main` nach `public/blocks/kursfilter` auschecken. Keine Secrets oder `config.php` aus einer anderen Installation übernehmen.
+1. Moodle 5.1 oder 5.2 in ein eigenes Verzeichnis auschecken, Abhängigkeiten mit `composer install` installieren. Dieses Repo nach `public/blocks/fragenfilter` verlinken oder kopieren. Keine Secrets oder `config.php` aus einer anderen Installation übernehmen.
 2. Eine eigene `config.php` im Moodle-Root nach `config-dist.php` erstellen: Datenbanktreiber, Host, Name, Benutzer und Passwort ausschließlich der Testdatenbank, `prefix = 'mdl_'`, `wwwroot` und ein eigenes `dataroot`. Zusätzlich `phpunit_prefix = 'phpu_'` und ein separates `phpunit_dataroot` setzen. Beide Datenverzeichnisse müssen für CLI und Webserver schreibbar sein.
 3. Vor `require_once(__DIR__ . '/lib/setup.php');` die Umleitung einfügen:
 

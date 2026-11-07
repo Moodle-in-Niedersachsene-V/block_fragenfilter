@@ -25,6 +25,57 @@ namespace block_fragenfilter;
  */
 final class question_visibility {
     /**
+     * Return a SQL fragment and parameter array that restrict a question query to
+     * mod_qbank activities in courses belonging to the Aufgabenpool category tree.
+     *
+     * The fragment must be added to the WHERE clause of a query that already joins
+     * {question_categories} as "qc". It adds the necessary extra JOINs via a
+     * sub-select so it can be safely appended with AND.
+     *
+     * Uses the category's stored path column (e.g. "/1/17") to match the category
+     * itself and all its descendants with a single LIKE, which handles arbitrary
+     * nesting depth and avoids false positives from identically-named sibling
+     * categories.
+     *
+     * @return array{string, array<string,mixed>} [sql_fragment, params]
+     */
+    public static function pool_category_sql(): array {
+        global $DB;
+
+        $poolcatname = \block_fragenfilter\pool_manager::POOL_ENROL_CATEGORY;
+        $poolcat     = $DB->get_record('course_categories', ['name' => $poolcatname], 'id,path', IGNORE_MISSING);
+
+        if (!$poolcat) {
+            // No Aufgabenpool category found — return a fragment that matches nothing
+            // so the filter is safely restrictive rather than leaking all questions.
+            return ['1 = 0', []];
+        }
+
+        $pathprefix = $DB->sql_like_escape($poolcat->path);
+
+        $sql = "EXISTS (
+            SELECT 1
+              FROM {course_modules} cm2
+              JOIN {modules} m2 ON m2.id = cm2.module AND m2.name = 'qbank'
+              JOIN {context} ctx2 ON ctx2.instanceid = cm2.id AND ctx2.contextlevel = :poolctxlvl
+              JOIN {course} c2 ON c2.id = cm2.course
+              JOIN {course_categories} cat2 ON cat2.id = c2.category
+             WHERE ctx2.id = qc.contextid
+               AND (" . $DB->sql_like('cat2.path', ':poolexact') . "
+                OR " . $DB->sql_like('cat2.path', ':poolsub') . ")
+        )";
+
+        $params = [
+            'poolctxlvl' => CONTEXT_MODULE,
+            'poolexact'  => $pathprefix,
+            'poolsub'    => $pathprefix . '/%',
+        ];
+
+        return [$sql, $params];
+    }
+
+
+    /**
      * The one query every list of questions starts from: ready, top-level questions the current user may see.
      *
      * Aliases: q (question), qv (version), qbe (bank entry), qc (category), ctx (category context).
@@ -65,13 +116,19 @@ final class question_visibility {
             $args += $params;
             $args['viewer'] = $user->id;
         }
+        if (isguestuser($user) || !isloggedin() || preview_role::is_pool_account($user)) {
+            $clauses = ['1 = 1'];
+            $args = [];
+        }
+        [$poolsql, $poolargs] = self::pool_category_sql();
+        $args += $poolargs;
         $visibility = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
         $from = "FROM {question} q
                    JOIN {question_versions} qv ON qv.questionid = q.id
                    JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
                    JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
                    JOIN {context} ctx ON ctx.id = qc.contextid
-                  WHERE q.parent = 0 AND qv.status = 'ready' AND $visibility";
+                  WHERE q.parent = 0 AND qv.status = 'ready' AND $visibility AND $poolsql";
         return [$from, $args];
     }
 

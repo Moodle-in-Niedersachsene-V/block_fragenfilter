@@ -19,7 +19,7 @@ namespace block_fragenfilter;
 /**
  * Star ratings for questions: one rating per question and browser (ADR 0003).
  *
- * The browser is identified by the Kursfilter cookie kf_rater_id. The web service adapter checks
+ * The browser is identified by the existing kf_rater_id cookie. The web service adapter checks
  * parameters, POST and sesskey, then delegates here.
  *
  * @package block_fragenfilter
@@ -41,8 +41,17 @@ final class rating {
      * @return string Cookie hash.
      */
     public static function cookie_for_rating(): string {
-        return self::$cookie ??= \block_kursfilter\rating_helper::renew_cookie_hash()
-            ?? \block_kursfilter\rating_helper::create_cookie_hash();
+        if (self::$cookie === null) {
+            self::$cookie = self::cookie_for_reading() ?? hash('sha256', random_bytes(32));
+            setcookie('kf_rater_id', self::$cookie, [
+                'expires' => time() + YEARSECS,
+                'path' => '/',
+                'secure' => true,
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+        }
+        return self::$cookie;
     }
 
     /**
@@ -51,7 +60,10 @@ final class rating {
      * @return string|null Cookie hash, or null if the browser has none.
      */
     public static function cookie_for_reading(): ?string {
-        return self::$cookie ?? \block_kursfilter\rating_helper::get_cookie_hash();
+        // Moodle has no cookie parameter reader; accept only the established SHA-256 format.
+        // phpcs:ignore moodle.Commenting.InlineComment.NotCapital,moodle.Commenting.InlineComment.InvalidEndChar -- Semgrep marker syntax.
+        $raw = $_COOKIE['kf_rater_id'] ?? ''; // nosemgrep: moodle-superglobal-direkt
+        return self::$cookie ?? (is_string($raw) && preg_match('/^[0-9a-f]{64}$/D', $raw) ? $raw : null);
     }
 
     /**

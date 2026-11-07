@@ -117,15 +117,19 @@ class generate_tags extends \core\task\scheduled_task {
     private static function next_questions(int $limit): array {
         global $DB;
 
+        [$poolsql, $args] = \block_fragenfilter\question_visibility::pool_category_sql();
         $sql = "SELECT q.id, q.name, q.qtype, q.questiontext
                   FROM {question} q
-                 WHERE q.parent = 0
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE q.parent = 0 AND qv.status = 'ready' AND $poolsql
                    AND NOT EXISTS (
                        SELECT 1 FROM {block_fragenfilter_tag_pending} tp
                         WHERE tp.questionid = q.id
                    )
               ORDER BY q.id ASC";
 
-        return $DB->get_records_sql($sql, [], 0, $limit);
+        return $DB->get_records_sql($sql, $args, 0, $limit);
     }
 }

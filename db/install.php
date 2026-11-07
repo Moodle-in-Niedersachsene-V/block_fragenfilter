@@ -17,7 +17,8 @@
 /**
  * Post-installation steps for block_fragenfilter.
  *
- * Creates the question preview role and assigns it to the pool accounts of block_kursfilter.
+ * Creates the own fragenfilter pool accounts (fragenfilter_pool01-10), sets up the
+ * preview role, and assigns it to the dedicated Fragenfilter pool accounts.
  *
  * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
@@ -28,5 +29,8 @@
  * Runs after the plugin is installed.
  */
 function xmldb_block_fragenfilter_install(): void {
+    // Create the fragenfilter-owned pool accounts if they don't exist yet.
+    \block_fragenfilter\pool_manager::create_pool_accounts();
+    // Assign the preview role to the dedicated Fragenfilter pool accounts.
     \block_fragenfilter\preview_role::assign_to_pool_accounts();
 }

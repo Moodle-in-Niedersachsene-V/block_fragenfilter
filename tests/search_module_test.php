@@ -41,7 +41,7 @@ final class search_module_test extends \advanced_testcase {
         $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        return [$generator->create_question_category(), $generator];
+        return [$this->getDataGenerator()->get_plugin_generator('block_fragenfilter')->create_public_category(), $generator];
     }
 
     public function test_limit_is_applied_after_filters(): void {

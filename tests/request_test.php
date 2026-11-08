@@ -61,6 +61,8 @@ final class request_test extends \advanced_testcase {
         $this->resetAfterTest();
         // The materials hub exposes search to anonymous visitors.
         set_config('forcelogin', 0);
+        // Moodle 5.2 disables Home by default; the materials hub explicitly exposes it.
+        set_config('enablemyhome', 1);
         set_config('defaulthomepage', HOMEPAGE_SITE);
         // The web server process runs with developer debugging shown, so notices reach the response.
         set_config('debug', DEBUG_DEVELOPER);

@@ -2,7 +2,7 @@
 
 ## Ergebnis
 
-Build **2026110708**, Release **v1.6.0**. Friedhelms `lokaler-stand` (`0de51a9`)
+Build **2026110709**, Release **v1.6.0**. Friedhelms `lokaler-stand` (`0de51a9`)
 und das Refactoring (`e5beac9`, Spec #20) sind mit Mergecommit `9a4043c` verbunden.
 Nachfolgende Review- und E2E-Fixes erhalten die eigenen Fragenfilter-Pool-Konten.
 Es gibt keine Laufzeitabhängigkeit von Kursfilter-Klassen. Der Kursfilter-Code
@@ -26,8 +26,9 @@ Frage-Rechte. Kurs- und Systembereich werden auch für öffentliche Besucher bea
 | Prüfung | Ergebnis | Geltungsbereich |
 |---|---|---|
 | Vollsuite ohne Kursfilter | **104 Tests, 1.201 Assertions**, Exit 0 | Moodle 5.1.8+, PHP 8.3.36, MariaDB 10.11.18, echte HTTP-Anfragen |
+| Vollsuite ohne Kursfilter (PostgreSQL) | **104 Tests, 1.201 Assertions**, Exit 0 | Moodle 5.2.4, PHP 8.4.27, PostgreSQL 16.14, echte HTTP-Anfragen |
 | Vollsuite mit Kursfilter vor Review-Fixes | **101 Tests, 1.177 Assertions**, Exit 0 | Historischer Zwischenstand 2026110704; kein finaler Koexistenz-Vollsuitebeleg |
-| Browser-E2E mit installiertem Kursfilter | **8 Szenarien grün, keine pageErrors** | Echter HTTPS-Aufruf von Spike, Build 2026110708 |
+| Browser-E2E mit installiertem Kursfilter | **8 Szenarien grün, keine pageErrors** | Echter HTTPS-Aufruf von Spike, Build 2026110709 |
 | Upgrade | Beide Ausgangsstände grün | `2026102216` und `2026110703`, eigene Testdatenbank; zusätzlich altes Bewertungsschema |
 | Nachinstallation | `phpunit/cli/util.php --buildconfig` Exit 0 ohne Debug-Ausgabe | Isolierte Installation ohne Kursfilter |
 | Formatierung | phpcbf/phpcs ohne Befund | Moodle-Standard |
@@ -41,9 +42,32 @@ MariaDB-Ergebnisse ersetzen den PostgreSQL-/PHP-8.4-Lauf nicht.
 
 Rohbelege, Screenshots und Dateihashes:
 [Nachweisverzeichnis](fragenfilter-integration-2026-11-07/).
-Der erste Vollsuitebeleg ist ausdrücklich ein früherer Stand. Nach dem finalen
-Standalone-/Browserlauf wurden nur zwei fehlende PHPDoc-Parameterbeschreibungen
-ergänzt; keine ausführbaren PHP-Anweisungen geändert.
+Der erste Koexistenz-Vollsuitebeleg ist ausdrücklich ein früherer Stand. Die
+CI-Nachbesserung zu Build 2026110709 verändert ausschließlich Testaufbau und
+Testmessung; die Anwendungslogik bleibt gegenüber Build 2026110708 unverändert.
+
+## CI-Nachbesserung vom 08.11.2026
+
+Der [erste Matrixlauf](https://github.com/Moodle-in-Niedersachsene-V/block_fragenfilter/actions/runs/42415749308)
+bestand MariaDB und Semgrep, meldete auf Moodle 5.2/PHP 8.4/PostgreSQL jedoch
+elf Testfehler. Zehn betrafen den gemeinsamen HTTP-Anmeldeablauf, einer die
+Abfragezählung. Beide Ursachen wurden separat in einer eigenen Testinstallation
+reproduziert und behoben:
+
+- Moodle 5.2 deaktiviert Home standardmäßig (`enablemyhome=0`). Die öffentliche
+  Hub-Fixture aktiviert Home jetzt explizit. Keine Änderung der globalen
+  Website-Konfiguration durch Anwendungscode.
+- PostgreSQL verwendet bei `get_recordset_sql()` einen Cursor; `FETCH` und `CLOSE`
+  zählen als zusätzliche Roundtrips. Der Tag-Ladetest vergleicht nun eine mit
+  drei Fragen und verlangt konstante Kosten. Eine Abfrage pro Ergebnis würde
+  weiterhin scheitern.
+
+Die gezielten Gegenfälle und anschließend beide kompletten Suiten bestehen:
+**je 104 Tests / 1.201 Assertions** auf MariaDB/PHP 8.3 und PostgreSQL/PHP 8.4.
+Die lokale PostgreSQL-Installation verwendet Moodle 5.2.4 und PostgreSQL 16.14;
+die CI prüft den dort aktuellen Moodle-5.2-Zweig und PostgreSQL-16-Patchstand. Das [Kurzprotokoll](fragenfilter-integration-2026-11-07/ci-fix-summary.txt)
+zeichnet den Rot-/Grün-Nachweis auf. Die finale CI am neuen PR-Head wird von
+GitHub separat ausgewiesen.
 
 ## Im Browser nachgewiesen
 
@@ -127,7 +151,7 @@ Lasttest mit gezielt gleichzeitig eintreffenden Requests und kein Cross-Site-Tes
 Tag-/Filter-XSS wird durch den Fragennamen-Test nicht pauschal als geprüft gewertet.
 
 Vor den Spike-Upgrades wurden nach der dortigen Dokumentation Snapshots erzeugt,
-zuletzt `/opt/moodle-devstack-secrets/dumps/kurspilot-spike-20261107-221040.sql`.
+zuletzt `/opt/moodle-devstack-secrets/dumps/kurspilot-spike-20261107-223845.sql`.
 Das Upgrade legt eigene Konten und Rollen an bzw. korrigiert Rollenrechte.
 Rücknahme über den passenden Datenbank-Snapshot und vorherigen Pluginstand;
 ein bloßer Code-Downgrade ersetzt das nicht.

@@ -57,10 +57,10 @@
   "tests/question_visibility_test.php": "15550e0a1743aef968f24db27a238853700140ef6e301616ba033f84f5ed3abb",
   "tests/rating_module_test.php": "6b7da1ebbcf6c0fb688219a4b9cbdc5938414b4244b5f84252f2401379410600",
   "tests/rating_upgrade_test.php": "215682b9e2d64d458f26d24ee50008015774f0eddc16ad5da35cdbca66699372",
-  "tests/request_test.php": "ac341dc298686c049a424e3bcb5e49771db738e60150b7414d57d1a3797a81af",
+  "tests/request_test.php": "e987a85263cb3e81382d5440f55eec1e95ec2abc4ff406b18fa8ed04f0d818a1",
   "tests/search_export_test.php": "12a4f524f1df99fe6418106b4cf38fc092c33e2a8be3474536c39ef2b971d6b6",
-  "tests/search_module_test.php": "c47ac589f09cc717386150a4eb3593a126b59b03df585e91f3b9a82570fee38f",
+  "tests/search_module_test.php": "111c58973b0643c457d50ed77f628410d61a776974695ccb728be7b382504d20",
   "tests/tag_suggestion_test.php": "c7244f36f4f282cc288fa84ddea5a6c00869130be52f32d70f2f4aa7563b1c46",
   "tests/visitor_access_test.php": "593437bb4f2a03ba2b120102fd6b37ef6e163e95b6e6bd1c15996d77af010b9c",
-  "version.php": "85a218cb86d11a458e1765bdf9a9c0a443e3854b4f2e880d766040ec27157c45"
+  "version.php": "af90fde821715380d73fefa58ed8d8af23ccc31b1c3cdef5babe7176f7641673"
 }

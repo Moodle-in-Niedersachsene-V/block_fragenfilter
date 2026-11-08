@@ -99,7 +99,7 @@ final class search_module_test extends \advanced_testcase {
         $this->assertTrue(true);
     }
 
-    public function test_tags_of_all_results_are_loaded_in_one_query(): void {
+    public function test_tag_loading_does_not_add_a_query_per_result(): void {
         global $DB;
         [$cat, $generator] = $this->category_and_generator();
         $ids = [];
@@ -109,8 +109,12 @@ final class search_module_test extends \advanced_testcase {
             $ids[] = (int)$q->id;
         }
         $before = $DB->perf_get_reads();
+        search::tags_for_questions([$ids[0]]);
+        $singlecost = $DB->perf_get_reads() - $before;
+        $before = $DB->perf_get_reads();
         $tags = search::tags_for_questions($ids);
-        $this->assertSame(1, $DB->perf_get_reads() - $before);
+        // PostgreSQL cursors add FETCH/CLOSE roundtrips; the cost must not grow per question.
+        $this->assertSame($singlecost, $DB->perf_get_reads() - $before);
         $this->assertCount(1, $tags[$ids[0]]);
         // Moodle normalises tag names to lowercase.
         $this->assertSame('atag', $tags[$ids[0]][0]['name']);

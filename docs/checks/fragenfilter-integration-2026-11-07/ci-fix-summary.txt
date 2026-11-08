@@ -1,0 +1,22 @@
+CI-Ausgangsstand a6a3d4e, Lauf 42415749308:
+- Moodle 5.1/PHP 8.3/MariaDB: success.
+- Semgrep: success.
+- Moodle 5.2/PHP 8.4/PostgreSQL: 11 Fehlschläge.
+
+Zwei Ursachen:
+1. Moodle 5.2 deaktiviert Home standardmäßig (enablemyhome=0). Die öffentliche
+   Hub-Fixture muss Home neben forcelogin=0 ausdrücklich aktivieren.
+2. PostgreSQL-Recordsets zählen DECLARE/FETCH/CLOSE. Die N+1-Invariante wird
+   anhand gleicher Roundtrip-Kosten für eine und drei Fragen geprüft.
+
+Gezielte lokale Reproduktion auf Moodle 5.2.4/PHP 8.4.27/PostgreSQL 16.14:
+- Vorher: beide gezielten Tests fehlgeschlagen.
+- Nach enablemyhome=1: zwei HTTP-Fälle bestanden (32 Assertions).
+- Nach portabler Kostenprüfung: Tag-Ladetest bestanden (4 Assertions).
+
+Anwendungslogik unverändert; nur Testaufbau, Testinvariante und Buildnummer.
+
+Finaler Build 2026110709:
+- MariaDB/PHP 8.3: 104 Tests, 1.201 Assertions, Exit 0.
+- PostgreSQL/PHP 8.4: 104 Tests, 1.201 Assertions, Exit 0.
+- Spike HTTPS/Playwright: 8 Szenarien bestanden, keine pageErrors.

@@ -247,3 +247,17 @@ Moodle-Laufzeitabhängigkeit. Die Standalone-Suite wurde frisch ohne Kursfilter
 installiert, die echte Spike-E2E prüft zusätzlich die Koexistenz. Historische
 Kursfilter-IP-Sperrtests sind durch den ausdrücklich erlaubten zweiten Besucher
 derselben Adresse ersetzt.
+
+### Moodle 5.2: öffentliche Startseite und PostgreSQL-Cursor
+
+Die HTTP-Fixtures aktivieren neben `forcelogin=0` ausdrücklich `enablemyhome=1`.
+Moodle 5.2 deaktiviert Home standardmäßig; `defaulthomepage=HOMEPAGE_SITE` allein
+verhindert dann die Weiterleitung zur Anmeldung bzw. zum Dashboard nicht. Das
+ist Testaufbau für die öffentliche Hub-Startseite, keine globale Einstellung
+durch den Fragenfilter. Auf einer echten Moodle-5.2-Instanz muss Home für diesen
+Startseitenablauf entsprechend aktiviert sein.
+
+Der Tag-Ladetest vergleicht die Roundtrip-Zahl für eine und drei Fragen.
+PostgreSQL verwendet bei `get_recordset_sql()` einen Cursor und zählt zusätzlich
+`FETCH` und `CLOSE`. Der Test verlangt deshalb konstante Kosten bei mehr Fragen
+und erkennt weiterhin N+1, ohne eine treiberspezifische Zahl festzuschreiben.

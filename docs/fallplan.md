@@ -7,7 +7,7 @@
 | Projekt / Komponenten | Materialien-Hub: eigenständiger `block_fragenfilter`; Koexistenz mit `block_kursfilter` zusätzlich geprüft |
 | Planversion / Prüfdatum | 1 / 16.10.2026; ergänzt um Release und Freigabe nach Fallplan zu #13 (17.10.2026), Semgrep und Vorschau-CSRF zu #7, KI-Prüfseite und Connector zu #12 sowie Pool-Vorschau über den Kursfilter zu #8, Such-/Exportgrenzen zu #9 und Cookie-Bewertung zu #10; initialer Plan zu [#6](https://github.com/Moodle-in-Niedersachsene-V/block_questionfilter/issues/6), Teil [Spec #2](https://github.com/Moodle-in-Niedersachsene-V/block_questionfilter/issues/2) |
 | Geprüfter Commit | E1–E4/R1–R3: `a4943ea3765c2d49854d116fc368675362f5556e`; S1/S2/S3: #7-Stand `d18828648441fb16bddc9fbe3c8ff1518123c2e8`, genaue geprüfte Dateihashes in `/tmp/questionfilter-spec2-issue7/source-hashes.json`. S3 belegt die CI an genau diesem Commit; nachfolgende reine Nachweisdokumentation ändert diesen Verhaltensnachweis nicht; K1–K4 (#12): `d87abfb`; P1–P5 (#8) gelten für den Commit, der diese Änderung enthält (Basis `d87abfb`, SHA im Git-Log und Übergabebeleg). Q1–Q4 (#9): Commit dieser Änderung auf Basis `df3058a`; Dateihashes und finale SHA im Übergabereport `/tmp/questionfilter-spec2-issue9/report.md`. C1–C4 (#10): Commit dieser Änderung auf Basis `ef4a490`; finale SHA und Dateihashes in `/tmp/questionfilter-spec2-issue10/report.md`. V1–V3 (#11): Commit dieser Änderung auf Basis `fc4b6c6`; finale SHA und Dateihashes in `/tmp/questionfilter-spec2-issue11/report.md`. Release-Commit #13 (historisch): `bbec4a5b88684b18df4100d77ab58aeefc5a2225` (Build 2026101701). **Historischer Release-Commit (Gesamtreview-Fixes G1–G5, Fälle B1-04, B2-02, B4-02, B4-04 und PD-07): `69b9828c2baa92bfe388ed2749921d439662a2ed`**; Quelltext des Pakets, Checks, Suiten und die lokalen Belege beziehen sich auf genau diesen Commit. Nachfolgende Commits ändern nur `docs/` (dieser Prüfkopf); das Paket enthält `docs/` nicht. Eine CI am Code-Commit und an den Folgecommits steht aus. |
-| Build / Release | **2026110708, v1.6.0**: Integration von Friedhelms eigenem Fragenfilter-Pool und Spec #20 (I2). Moodle ≥ 5.1, keine Kursfilter-Abhängigkeit. Historische Build-/Release-Nachweise unten sind nicht die aktuelle Integrationsfreigabe. |
+| Build / Release | **2026110709, v1.6.0**: Integration von Friedhelms eigenem Fragenfilter-Pool und Spec #20 (I2). Moodle ≥ 5.1, keine Kursfilter-Abhängigkeit. Historische Build-/Release-Nachweise unten sind nicht die aktuelle Integrationsfreigabe. |
 | Zugeordnetes Paket | Für den aktuellen Integrationsbuild kein Release-Zip erstellt. Draft-PR zur Begutachtung; historische Paketnachweise stehen bei F/H und gelten nur für ihre damaligen Stände. |
 | Unterstützte Versionen / Auswahl | `requires = 2025100600` (Moodle 5.1); vereinbarte Matrix 5.1/PHP 8.3/MariaDB 10.11 und 5.2/PHP 8.4/PostgreSQL 16. Nur Materialien-Hub, keine vollständige DB-Kreuzmatrix ([ADR 0001](adr/0001-fragenfilter-runs-only-in-the-materials-hub.md)). |
 | Tatsächlich getestet (historische CI E1) | Moodle **5.1.8 (Build 20261005), PHP 8.3.35**, MariaDB-10.11-Service; Moodle **5.2.4+ (Build 20261013), PHP 8.4.26**, PostgreSQL-16-Service. DB-Patchstände hier nicht festgestellt. Kursfilter jeweils von `main` mitinstalliert. |
@@ -63,6 +63,21 @@ HINWEIS-Fälle. B1-02 bleibt ohne echten Hub-Altdatenbestand HINWEIS; B4-03 umfa
 nicht alle Tag-/Filterwerte; PD-03 umfasst keinen Cross-Site-Gegenfall. CI auf dem
 finalen PR-Head und Friedhelms Begutachtung werden separat ausgewiesen. Keine
 Produktionsfreigabe und kein Main-Merge.
+
+## CI-Nachbesserung (I3, 08.11.2026)
+
+Build **2026110709** ändert keine Anwendungslogik. Die HTTP-Fixture aktiviert
+Moodles ab 5.2 standardmäßig deaktivierte Startseite; der Tag-Ladetest prüft
+konstante Kosten unabhängig von PostgreSQLs Cursor-Roundtrips. Der erste CI-Lauf
+`42415749308` bestand MariaDB und Semgrep, PostgreSQL scheiterte an diesen zwei
+Testannahmen. Gezielte lokale Rot-/Grün-Proben und beide komplette Suiten sind grün:
+**je 104 Tests / 1.201 Assertions** auf Moodle 5.1/PHP 8.3/MariaDB und
+Moodle 5.2/PHP 8.4/PostgreSQL. Acht Spike-E2E-Szenarien auf dem neuen Build ebenfalls grün.
+Siehe [Prüfbericht und Nachweise](checks/fragenfilter-integration-2026-11-07.md).
+
+Betroffene Fälle: B2-01, B2-05, B2-07/B2-08, B3-01/B3-03 und B4-04.
+Die Testkorrekturen ändern keinen Fallstatus: **27/39 = 69,23 %**. Der PostgreSQL-Vollsuitenbeleg liegt im Prüfbericht; die CI am neuen PR-Head
+wird separat in GitHub ausgewiesen.
 
 ## Maßstab und Belege
 

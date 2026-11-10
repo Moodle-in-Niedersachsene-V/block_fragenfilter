@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Keine Abhängigkeit auf block_kursfilter
+      - name: Keine Kursfilter-Abhängigkeit
         run: .github/scripts/check-no-kursfilter.sh
 
   semgrep:

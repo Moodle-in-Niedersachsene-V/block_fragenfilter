@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<quiz>
+<!-- question: {id0}  -->
+  <question type="shortanswer">
+    <name>
+      <text><![CDATA[Kurzantwort "Hauptstadt"]]></text>
+    </name>
+    <questiontext format="moodle_auto_format">
+      <text></text>
+    </questiontext>
+    <generalfeedback format="html">
+      <text>Generalfeedback: frog or toad would have been OK.</text>
+    </generalfeedback>
+    <defaultgrade>1</defaultgrade>
+    <penalty>0</penalty>
+    <hidden>0</hidden>
+    <idnumber></idnumber>
+    <usecase>0</usecase>
+    <answer fraction="100" format="moodle_auto_format">
+      <text>frog</text>
+      <feedback format="html">
+        <text>Frog is a very good answer.</text>
+      </feedback>
+    </answer>
+    <answer fraction="80" format="moodle_auto_format">
+      <text>toad</text>
+      <feedback format="html">
+        <text>Toad is an OK good answer.</text>
+      </feedback>
+    </answer>
+    <answer fraction="0" format="moodle_auto_format">
+      <text>*</text>
+      <feedback format="html">
+        <text>That is a bad answer.</text>
+      </feedback>
+    </answer>
+    <hint format="html">
+      <text>Rhymes with dog</text>
+    </hint>
+    <tags>
+      <tag><text>Alpha</text>
+</tag>
+      <tag><text>Beta</text>
+</tag>
+    </tags>
+  </question>
+<!-- question: {id1}  -->
+  <question type="multichoice">
+    <name>
+      <text>Auswahl</text>
+    </name>
+    <questiontext format="moodle_auto_format">
+      <text></text>
+    </questiontext>
+    <generalfeedback format="html">
+      <text>The odd numbers are One and Three.</text>
+    </generalfeedback>
+    <defaultgrade>1</defaultgrade>
+    <penalty>0.3333333</penalty>
+    <hidden>0</hidden>
+    <idnumber></idnumber>
+    <single>false</single>
+    <shuffleanswers>true</shuffleanswers>
+    <answernumbering>123</answernumbering>
+    <showstandardinstruction>0</showstandardinstruction>
+    <correctfeedback format="html">
+      <text>Well done!</text>
+    </correctfeedback>
+    <partiallycorrectfeedback format="html">
+      <text>Parts, but only parts, of your response are correct.</text>
+    </partiallycorrectfeedback>
+    <incorrectfeedback format="html">
+      <text>That is not right at all.</text>
+    </incorrectfeedback>
+    <shownumcorrect/>
+    <answer fraction="50" format="plain_text">
+      <text>One</text>
+      <feedback format="html">
+        <text>One is odd.</text>
+      </feedback>
+    </answer>
+    <answer fraction="0" format="plain_text">
+      <text>Two</text>
+      <feedback format="html">
+        <text>Two is even.</text>
+      </feedback>
+    </answer>
+    <answer fraction="50" format="plain_text">
+      <text>Three</text>
+      <feedback format="html">
+        <text>Three is odd.</text>
+      </feedback>
+    </answer>
+    <answer fraction="0" format="plain_text">
+      <text>Four</text>
+      <feedback format="html">
+        <text>Four is even.</text>
+      </feedback>
+    </answer>
+    <hint format="html">
+      <text>Hint 1.</text>
+      <shownumcorrect/>
+    </hint>
+    <hint format="html">
+      <text>Hint 2.</text>
+      <shownumcorrect/>
+      <clearwrong/>
+    </hint>
+  </question>
+<!-- question: {id2}  -->
+  <question type="truefalse">
+    <name>
+      <text>Wahr</text>
+    </name>
+    <questiontext format="moodle_auto_format">
+      <text></text>
+    </questiontext>
+    <generalfeedback format="html">
+      <text>You should have selected true.</text>
+    </generalfeedback>
+    <defaultgrade>1</defaultgrade>
+    <penalty>1</penalty>
+    <hidden>0</hidden>
+    <idnumber></idnumber>
+    <answer fraction="100" format="moodle_auto_format">
+      <text>true</text>
+      <feedback format="html">
+        <text>This is the right answer.</text>
+      </feedback>
+    </answer>
+    <answer fraction="0" format="moodle_auto_format">
+      <text>false</text>
+      <feedback format="html">
+        <text>This is the wrong answer.</text>
+      </feedback>
+    </answer>
+  </question>
+</quiz>

@@ -35,6 +35,7 @@
 namespace block_fragenfilter\task;
 
 use block_fragenfilter\ai_connector;
+use block_fragenfilter\tag_suggestion;
 
 /**
  * Processes a batch of questions without AI-generated tags and
@@ -85,7 +86,7 @@ class generate_tags extends \core\task\scheduled_task {
         foreach ($questions as $question) {
             try {
                 $tags   = $connector->suggest_tags($question->name, $question->questiontext, $question->qtype);
-                $status = self::record_outcome($question, $tags, $autoapply);
+                $status = tag_suggestion::create((int)$question->id, $tags, $autoapply);
                 mtrace("block_fragenfilter: Frage {$question->id} ({$question->name}): "
                     . $status . ' (' . implode(', ', $tags) . ')');
             } catch (\Throwable $e) {
@@ -116,74 +117,19 @@ class generate_tags extends \core\task\scheduled_task {
     private static function next_questions(int $limit): array {
         global $DB;
 
+        [$poolsql, $args] = \block_fragenfilter\question_visibility::pool_category_sql();
         $sql = "SELECT q.id, q.name, q.qtype, q.questiontext
                   FROM {question} q
-                 WHERE q.parent = 0
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                 WHERE q.parent = 0 AND qv.status = 'ready' AND $poolsql
                    AND NOT EXISTS (
                        SELECT 1 FROM {block_fragenfilter_tag_pending} tp
                         WHERE tp.questionid = q.id
                    )
               ORDER BY q.id ASC";
 
-        return $DB->get_records_sql($sql, [], 0, $limit);
-    }
-
-    /**
-     * Stores the tagging result and optionally writes tags to Moodle's tag system.
-     *
-     * @param \stdClass $question   Question record (must have id, name, qtype).
-     * @param string[]  $tags       Suggested tag values.
-     * @param bool      $autoapply  Whether to write tags immediately.
-     * @return string               Recorded status ('applied', 'pending', or 'empty').
-     */
-    private static function record_outcome(\stdClass $question, array $tags, bool $autoapply): string {
-        global $DB;
-
-        if (empty($tags)) {
-            $status = 'empty';
-        } else if ($autoapply) {
-            self::apply_tags((int)$question->id, $tags);
-            $status = 'applied';
-        } else {
-            $status = 'pending';
-        }
-
-        $now = time();
-        $DB->insert_record('block_fragenfilter_tag_pending', (object)[
-            'questionid'   => (int)$question->id,
-            'tags'         => implode(',', $tags),
-            'status'       => $status,
-            'timecreated'  => $now,
-            'timemodified' => $now,
-        ]);
-
-        return $status;
-    }
-
-    /**
-     * Writes approved tags directly into Moodle's question tag system.
-     *
-     * Existing tags are preserved. The caller authorises either manual review
-     * or the administrator-enabled scheduled task before calling this method.
-     *
-     * @param int      $questionid Question ID (mdl_question.id).
-     * @param string[] $tags       Tag values to write.
-     */
-    public static function apply_tags(int $questionid, array $tags): void {
-        global $DB;
-
-        $question = $DB->get_record_sql(
-            "SELECT q.id, qc.contextid
-               FROM {question} q
-               JOIN {question_versions} qv ON qv.questionid = q.id
-               JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-               JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-              WHERE q.id = :qid",
-            ['qid' => $questionid],
-            MUST_EXIST
-        );
-        $context = \context::instance_by_id($question->contextid);
-        $existing = \core_tag_tag::get_item_tags_array('core_question', 'question', $questionid);
-        \core_tag_tag::set_item_tags('core_question', 'question', $questionid, $context, array_merge($existing, $tags));
+        return $DB->get_records_sql($sql, $args, 0, $limit);
     }
 }

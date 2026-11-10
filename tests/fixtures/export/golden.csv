@@ -1,0 +1,4 @@
+"ID","Name","Typ","Kategorie","Tags"
+"{id0}","Kurzantwort ""Hauptstadt""","shortanswer","Fixture","Alpha; Beta"
+"{id1}","Auswahl","multichoice","Fixture",""
+"{id2}","Wahr","truefalse","Fixture",""

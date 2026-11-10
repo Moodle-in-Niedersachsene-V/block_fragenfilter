@@ -18,9 +18,10 @@ namespace block_fragenfilter;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversFunction;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * The preview role reaches every Kursfilter pool account.
+ * The preview role reaches every Fragenfilter pool account.
  *
  * @package    block_fragenfilter
  * @copyright  2026 Moodle in Niedersachsen e. V.
@@ -37,7 +38,7 @@ final class preview_role_test extends \advanced_testcase {
     private function existing_pool_usernames(): array {
         global $DB;
 
-        $usernames = \block_kursfilter\pool_manager::get_pool_usernames(\block_kursfilter\pool_manager::POOL_SIZE_MAX);
+        $usernames = \block_fragenfilter\pool_manager::get_pool_usernames(\block_fragenfilter\pool_manager::POOL_SIZE_MAX);
         return array_keys($DB->get_records_list('user', 'username', $usernames, '', 'username'));
     }
 
@@ -56,21 +57,36 @@ final class preview_role_test extends \advanced_testcase {
             && user_has_role_assignment($userid, $roleid, \context_system::instance()->id);
     }
 
-    public function test_upgrade_assigns_the_preview_role_to_every_pool_account(): void {
+    /**
+     * Both integrated version histories must reach the independent pool upgrade.
+     *
+     * @return array Version numbers before integration.
+     */
+    public static function upgrade_versions(): array {
+        return ['offline' => [2026102216], 'refactor' => [2026110703]];
+    }
+
+    /**
+     * Restores the independent pool from either version history.
+     *
+     * @param int $oldversion Installed build before integration.
+     */
+    #[DataProvider('upgrade_versions')]
+    public function test_upgrade_assigns_the_preview_role_to_every_pool_account(int $oldversion): void {
         global $CFG, $DB;
         require_once($CFG->libdir . '/upgradelib.php');
         require_once($CFG->dirroot . '/blocks/fragenfilter/db/upgrade.php');
         $this->resetAfterTest();
-        set_config('poolsize', 12, 'block_kursfilter');
-        \block_kursfilter\pool_manager::create_pool_accounts();
+        set_config('poolsize', 12, 'block_fragenfilter');
+        \block_fragenfilter\pool_manager::create_pool_accounts();
         $regular = $this->getDataGenerator()->create_user();
-        // Former account of the removed own pool: not a Kursfilter pool name.
+        // Former account of the removed own pool: not a Fragenfilter pool name.
         $legacy = $this->getDataGenerator()->create_user(['username' => 'questionfilter_guest01']);
         // State before the upgrade: the role is gone and no pool account holds it.
         delete_role($DB->get_field('role', 'id', ['shortname' => 'fragenfilter_preview'], MUST_EXIST));
-        set_config('version', 2026101602, 'block_fragenfilter');
+        set_config('version', $oldversion, 'block_fragenfilter');
 
-        xmldb_block_fragenfilter_upgrade(2026101602);
+        xmldb_block_fragenfilter_upgrade($oldversion);
 
         $poolusernames = $this->existing_pool_usernames();
         $this->assertCount(12, $poolusernames);
@@ -89,7 +105,7 @@ final class preview_role_test extends \advanced_testcase {
             }
         }
         sort($allowed);
-        $this->assertSame(['block/fragenfilter:export', 'moodle/question:usemine'], $allowed);
+        $this->assertSame(['block/fragenfilter:export', 'block/fragenfilter:view'], $allowed);
     }
 
     public function test_lookalike_accounts_do_not_receive_the_preview_role(): void {
@@ -99,10 +115,10 @@ final class preview_role_test extends \advanced_testcase {
         $this->resetAfterTest();
         // A self-registered lookalike is unconfirmed and not a manual account.
         $signup = $this->getDataGenerator()->create_user([
-            'username' => 'kursfilter_pool49', 'auth' => 'email', 'confirmed' => 0,
+            'username' => 'fragenfilter_pool49', 'auth' => 'email', 'confirmed' => 0,
         ]);
-        $outside = $this->getDataGenerator()->create_user(['username' => 'kursfilter_pool99']);
-        $partial = $this->getDataGenerator()->create_user(['username' => 'xkursfilter_pool01']);
+        $outside = $this->getDataGenerator()->create_user(['username' => 'fragenfilter_pool99']);
+        $partial = $this->getDataGenerator()->create_user(['username' => 'xfragenfilter_pool01']);
 
         preview_role::assign_to_pool_accounts();
 
@@ -111,14 +127,9 @@ final class preview_role_test extends \advanced_testcase {
         }
     }
 
-    public function test_the_plugin_registers_no_pool_guards_of_its_own(): void {
-        global $PAGE;
-
+    public function test_the_plugin_registers_its_own_pool_guard(): void {
         $manager = \core\hook\manager::get_instance();
-        foreach ([new \core\hook\after_config(), new \core\hook\output\before_http_headers($PAGE->get_renderer('core'))] as $hook) {
-            foreach (iterator_to_array($manager->getListenersForEvent($hook)) as $callback) {
-                $this->assertStringStartsNotWith('block_fragenfilter\\', (string)$callback, get_class($hook));
-            }
-        }
+        $callbacks = iterator_to_array($manager->getListenersForEvent(new \core\hook\after_config()));
+        $this->assertContains(hook_callbacks::class . '::after_config', array_map('strval', $callbacks));
     }
 }

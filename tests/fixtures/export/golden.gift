@@ -1,0 +1,26 @@
+// GIFT Export – {time}
+
+// question: {id0}  name: Kurzantwort "Hauptstadt"
+// [tag:Alpha] [tag:Beta]
+::Kurzantwort "Hauptstadt"::{
+	=%100%frog#[html]Frog is a very good answer.
+	=%80%toad#[html]Toad is an OK good answer.
+	=%0%*#[html]That is a bad answer.
+	####[html]Generalfeedback\: frog or toad would have been OK.
+}
+
+
+// question: {id1}  name: Auswahl
+::Auswahl::{
+	~%50%[plain]One#[html]One is odd.
+	~[plain]Two#[html]Two is even.
+	~%50%[plain]Three#[html]Three is odd.
+	~[plain]Four#[html]Four is even.
+	####[html]The odd numbers are One and Three.
+}
+
+
+// question: {id2}  name: Wahr
+::Wahr::{TRUE#[html]This is the wrong answer.#[html]This is the right answer.####[html]You should have selected true.}
+
+

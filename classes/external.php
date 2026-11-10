@@ -35,56 +35,6 @@ require_once($CFG->libdir . '/externallib.php');
  * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class block_fragenfilter_external extends external_api {
-    /** Maximum requests per user within the rate limit window. */
-    const RATE_LIMIT_REQUESTS = 30;
-
-    /** Rate limit window length in seconds. */
-    const RATE_LIMIT_WINDOW = 60;
-
-    /** Absolute maximum number of returned results (DoS protection). */
-    const MAX_RESULT_LIMIT = 200;
-
-    /** Default result limit when the caller does not provide one. */
-    const DEFAULT_RESULT_LIMIT = 200;
-
-    /** Maximum number of distinct question IDs per get_ratings call, matching the search limit. */
-    const MAX_RATING_IDS = self::MAX_RESULT_LIMIT;
-
-    /** @var string|null Rating cookie shared by all calls in the current AJAX batch. */
-    private static ?string $ratingcookie = null;
-
-    /**
-     * Checks the sliding rate limit for the given user at the caller's network address.
-     *
-     * Throws a moodle_exception if the user has made more than RATE_LIMIT_REQUESTS
-     * requests within RATE_LIMIT_WINDOW seconds. The bucket belongs to the account and the
-     * address together, so anonymous visitors (user 0) and reused pool accounts do not share one.
-     *
-     * @param int $userid Moodle user ID.
-     * @throws \moodle_exception If the rate limit is exceeded.
-     */
-    private static function check_rate_limit(int $userid): void {
-        $cache = \cache::make('block_fragenfilter', 'ratelimit');
-        $key   = 'rl_' . hash('sha256', $userid . '|' . getremoteaddr());
-        $now   = time();
-        $data  = $cache->get($key);
-
-        if ($data === false || ($now - $data['window_start']) >= self::RATE_LIMIT_WINDOW) {
-            $cache->set($key, ['count' => 1, 'window_start' => $now]);
-            return;
-        }
-
-        $data['count']++;
-        $cache->set($key, $data);
-
-        if ($data['count'] > self::RATE_LIMIT_REQUESTS) {
-            $remaining = self::RATE_LIMIT_WINDOW - ($now - $data['window_start']);
-            throw new \moodle_exception('ratelimitexceeded', 'block_fragenfilter', '', (object)[
-                'seconds' => max(1, (int)$remaining),
-            ]);
-        }
-    }
-
     /**
      * Validates the caller context without retaining an anonymous guest login.
      *
@@ -155,7 +105,7 @@ class block_fragenfilter_external extends external_api {
         int $contextid,
         int $limit
     ): array {
-        global $DB, $USER;
+        global $USER;
 
         $params = self::validate_parameters(self::search_questions_parameters(), [
             'search' => $search,
@@ -168,108 +118,29 @@ class block_fragenfilter_external extends external_api {
             'limit' => $limit,
         ]);
 
-        // Cap the limit at the configured maximum (DoS protection).
-        $maxlimit = max(1, min(self::MAX_RESULT_LIMIT, (int)(get_config('block_fragenfilter', 'resultlimit') ?: 200)));
-        if ($params['limit'] < 1 || $params['limit'] > $maxlimit) {
-            $params['limit'] = $maxlimit;
-        }
-
+        $maxlimit = \block_fragenfilter\search::max_result_limit();
         $context = self::validate_search_context($params['contextid']);
+        $userid = (int)$USER->id;
+        $address = getremoteaddr();
 
-        // Rate limit: at most RATE_LIMIT_REQUESTS per user within RATE_LIMIT_WINDOW seconds.
-        self::check_rate_limit((int)$USER->id);
-
-        [$visibilitysql, $ctxargs] = \block_fragenfilter\question_visibility::sql($params['scope'], $context->id);
-
-        // Base query joining question and question_categories.
-        $sql = "SELECT DISTINCT q.id, q.name, q.qtype, q.createdby,
-                       qc.id AS categoryid, qc.name AS categoryname,
-                       qc.contextid AS categorycontextid
-                  FROM {question} q
-                  JOIN {question_versions} qv ON qv.questionid = q.id
-                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-                  JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-                 WHERE q.parent = 0
-                   AND qv.status = 'ready'
-                   AND $visibilitysql";
-
-        $queryargs = $ctxargs;
-
-        // Free-text search: question title OR tags.
-        if (!empty($params['search'])) {
-            $searchparam = '%' . $DB->sql_like_escape(str_replace('!', '!!', $params['search']), '!') . '%';
-            $sql .= " AND (
-                " . $DB->sql_like('q.name', ':searchname', false, true, false, '!') . "
-                OR EXISTS (
-                    SELECT 1
-                      FROM {tag_instance} ti
-                      JOIN {tag} t ON t.id = ti.tagid
-                     WHERE ti.itemid = q.id
-                       AND ti.itemtype = 'question'
-                       AND ti.component = 'core_question'
-                       AND " . $DB->sql_like('t.name', ':searchtag', false, true, false, '!') . "
-                )
-            )";
-            $queryargs['searchname'] = $searchparam;
-            $queryargs['searchtag']  = $searchparam;
+        try {
+            $filters = \block_fragenfilter\search_filters::from_input(
+                $params['search'],
+                $params['categories'],
+                $params['types'],
+                $params['difficulty'],
+                $params['tags'],
+                $params['scope'],
+                $params['limit'],
+                $maxlimit
+            );
+        } catch (invalid_parameter_exception $e) {
+            // Invalid input still counts against the rate limit, as before the refactoring.
+            \block_fragenfilter\search::enforce_rate_limit($userid, $address);
+            throw $e;
         }
 
-        // Question type filter.
-        if (!empty($params['types'])) {
-            $typelist = array_filter(array_map('trim', explode(',', $params['types'])));
-            if ($typelist) {
-                [$typesql, $typeargs] = $DB->get_in_or_equal($typelist, SQL_PARAMS_NAMED, 'type');
-                $sql .= " AND q.qtype $typesql";
-                $queryargs = array_merge($queryargs, $typeargs);
-            }
-        }
-
-        // Category filter.
-        if (!empty($params['categories'])) {
-            if (!preg_match('/^[1-9][0-9]*(,[1-9][0-9]*)*$/D', $params['categories'])) {
-                throw new invalid_parameter_exception('Expected positive category IDs.');
-            }
-            $catids = array_map('intval', explode(',', $params['categories']));
-            if ($catids) {
-                [$catsql, $catargs] = $DB->get_in_or_equal($catids, SQL_PARAMS_NAMED, 'cat');
-                $sql .= " AND qbe.questioncategoryid $catsql";
-                $queryargs = array_merge($queryargs, $catargs);
-            }
-        }
-
-        $alltags = array_filter(array_map('trim', explode(',', $params['tags'])));
-        if (!empty($params['difficulty'])) {
-            $alltags[] = trim($params['difficulty']);
-        }
-        foreach (array_values($alltags) as $index => $tag) {
-            $placeholder = 'filtertag' . $index;
-            $sql .= " AND EXISTS (
-                SELECT 1 FROM {tag_instance} ti JOIN {tag} t ON t.id = ti.tagid
-                 WHERE ti.itemid = q.id AND ti.itemtype = 'question' AND ti.component = 'core_question'
-                   AND " . $DB->sql_like('t.name', ':' . $placeholder, false, true, false, '!') . ")";
-            $queryargs[$placeholder] = '%' . $DB->sql_like_escape(str_replace('!', '!!', $tag), '!') . '%';
-        }
-        $sql .= " ORDER BY qc.name, q.name";
-        $rows = $DB->get_records_sql($sql, $queryargs, 0, $params['limit']);
-        $questions = [];
-        foreach ($rows as $row) {
-            $qtags = self::get_question_tags((int)$row->id);
-
-            $questions[] = [
-                'id' => (int)$row->id,
-                'name' => $row->name,
-                'qtype' => $row->qtype,
-                'categoryid' => (int)$row->categoryid,
-                'categoryname' => $row->categoryname,
-                'contextid' => (int)$row->categorycontextid,
-                'tags' => $qtags,
-            ];
-        }
-
-        return [
-            'questions' => $questions,
-            'total' => count($questions),
-        ];
+        return \block_fragenfilter\search::questions($filters, $context, $userid, $address);
     }
 
     /**
@@ -320,40 +191,13 @@ class block_fragenfilter_external extends external_api {
      * @return array Categories.
      * nosemgrep: moodle-external-ohne-kontextpruefung */
     public static function get_categories(string $scope, int $contextid): array {
-        global $DB;
-
         $params = self::validate_parameters(
             self::get_categories_parameters(),
             ['scope' => $scope, 'contextid' => $contextid]
         );
         $context = self::validate_search_context($params['contextid']);
 
-        [$visibilitysql, $ctxargs] = \block_fragenfilter\question_visibility::sql($params['scope'], $context->id);
-        $rows = $DB->get_records_sql(
-            "SELECT qc.id, qc.name, qc.contextid, ctx.contextlevel,
-                    ctx.instanceid, COUNT(q.id) AS questioncount
-               FROM {question_categories} qc
-               JOIN {context} ctx ON ctx.id = qc.contextid
-               JOIN {question_bank_entries} qbe ON qbe.questioncategoryid = qc.id
-               JOIN {question_versions} qv ON qv.questionbankentryid = qbe.id
-               JOIN {question} q ON q.id = qv.questionid
-              WHERE $visibilitysql AND q.parent = 0 AND qv.status = 'ready'
-           GROUP BY qc.id, qc.name, qc.contextid, ctx.contextlevel, ctx.instanceid
-           ORDER BY qc.name",
-            $ctxargs
-        );
-
-        $cats = [];
-        foreach ($rows as $r) {
-            $label = self::context_label((int)$r->contextlevel, (int)$r->instanceid);
-            $cats[] = [
-                'id' => (int)$r->id,
-                'name' => $r->name,
-                'contextlabel' => $label,
-                'questioncount' => (int)$r->questioncount,
-            ];
-        }
-        return ['categories' => $cats];
+        return ['categories' => \block_fragenfilter\search::categories($params['scope'], $context)];
     }
 
     /**
@@ -397,70 +241,13 @@ class block_fragenfilter_external extends external_api {
      * @return array Question types.
      * nosemgrep: moodle-external-ohne-kontextpruefung */
     public static function get_questiontypes(string $scope, int $contextid, string $source = 'installed'): array {
-        global $DB, $CFG;
-
         $params = self::validate_parameters(
             self::get_questiontypes_parameters(),
             ['scope' => $scope, 'contextid' => $contextid, 'source' => $source]
         );
         $context = self::validate_search_context($params['contextid']);
 
-        if (
-            !in_array($params['scope'], ['all', 'course', 'system'], true) ||
-                !in_array($params['source'], ['installed', 'existing'], true)
-        ) {
-            throw new invalid_parameter_exception('Unknown search scope or question type source.');
-        }
-
-        $qtypes = [];
-
-        if ($params['source'] === 'installed') {
-            // Load all installed qtype plugins.
-            $plugintypes = core_component::get_plugin_list('qtype');
-            foreach ($plugintypes as $key => $path) {
-                // Skip system types.
-                if (in_array($key, ['missingtype', 'unknowntype'])) {
-                    continue;
-                }
-                $plugin = 'qtype_' . $key;
-                if (get_string_manager()->string_exists('pluginname', $plugin)) {
-                    $label = get_string('pluginname', $plugin);
-                } else {
-                    $label = ucfirst($key);
-                }
-                $qtypes[$key] = $label;
-            }
-        } else {
-            // Only types actually present in the question bank.
-            [$visibilitysql, $ctxargs] = \block_fragenfilter\question_visibility::sql($params['scope'], $context->id);
-            $rows = $DB->get_records_sql(
-                "SELECT DISTINCT q.qtype
-                   FROM {question} q
-                   JOIN {question_versions} qv       ON qv.questionid        = q.id
-                   JOIN {question_bank_entries} qbe   ON qbe.id              = qv.questionbankentryid
-                   JOIN {question_categories} qc      ON qc.id               = qbe.questioncategoryid
-                  WHERE $visibilitysql
-                    AND q.parent = 0
-                    AND qv.status = 'ready'
-               ORDER BY q.qtype",
-                $ctxargs
-            );
-            foreach ($rows as $r) {
-                $plugin = 'qtype_' . $r->qtype;
-                $label = get_string_manager()->string_exists('pluginname', $plugin)
-                    ? get_string('pluginname', $plugin) : ucfirst($r->qtype);
-                $qtypes[$r->qtype] = $label;
-            }
-        }
-
-        // Sort alphabetically by display name.
-        asort($qtypes);
-
-        $result = [];
-        foreach ($qtypes as $key => $label) {
-            $result[] = ['key' => $key, 'label' => $label];
-        }
-        return ['qtypes' => $result];
+        return ['qtypes' => \block_fragenfilter\search::question_types($params['scope'], $context, $params['source'])];
     }
 
     /**
@@ -500,8 +287,6 @@ class block_fragenfilter_external extends external_api {
      * @return array Export file information.
      */
     public static function export_questions(string $questionids, string $format, int $contextid): array {
-        global $CFG, $DB;
-
         $params = self::validate_parameters(self::export_questions_parameters(), [
             'questionids' => $questionids,
             'format' => $format,
@@ -514,7 +299,7 @@ class block_fragenfilter_external extends external_api {
         self::validate_context($context);
 
         // Export requires a dedicated capability, unavailable to guests.
-        if (!isloggedin() || isguestuser() || !has_capability('block/fragenfilter:export', context_system::instance())) {
+        if (!\block_fragenfilter\visitor_access::may_export()) {
             throw new moodle_exception('nopermission', 'block_fragenfilter');
         }
 
@@ -534,85 +319,6 @@ class block_fragenfilter_external extends external_api {
             'mimetype' => new external_value(PARAM_TEXT),
             'count' => new external_value(PARAM_INT),
         ]);
-    }
-
-    /**
-     * Loads a question's tags.
-     *
-     * @param int $questionid Question ID.
-     * @return array Tags.
-     */
-    private static function get_question_tags(int $questionid): array {
-        global $DB;
-
-        $sql = "SELECT t.id, t.name
-                  FROM {tag} t
-                  JOIN {tag_instance} ti ON ti.tagid = t.id
-                 WHERE ti.itemtype = 'question'
-                   AND ti.itemid = :qid
-                   AND ti.component = 'core_question'";
-        $rows = $DB->get_records_sql($sql, ['qid' => $questionid]);
-        $result = [];
-        foreach ($rows as $r) {
-            $result[] = ['id' => (int)$r->id, 'name' => $r->name];
-        }
-        return $result;
-    }
-
-    /**
-     * Returns a readable label for a category's context.
-     * For mod_qbank instances (Moodle 5), the actual question bank
-     * name is read from the qbank instance table.
-     *
-     * @param int $contextlevel Context level.
-     * @param int $instanceid Context instance ID.
-     * @return string Readable label.
-     */
-    private static function context_label(int $contextlevel, int $instanceid): string {
-        global $DB;
-        switch ($contextlevel) {
-            case CONTEXT_SYSTEM:
-                return get_string('coresystem', 'block_fragenfilter');
-
-            case CONTEXT_COURSECAT:
-                $name = $DB->get_field('course_categories', 'name', ['id' => $instanceid]);
-                return $name ? 'Kategorie: ' . $name : 'Kategorie #' . $instanceid;
-
-            case CONTEXT_COURSE:
-                $name = $DB->get_field('course', 'fullname', ['id' => $instanceid]);
-                return $name ?: 'Kurs #' . $instanceid;
-
-            case CONTEXT_MODULE:
-                // Load the course module.
-                $cm = $DB->get_record('course_modules', ['id' => $instanceid], 'id,course,module,instance');
-                if (!$cm) {
-                    return 'Modul #' . $instanceid;
-                }
-
-                $coursename = $DB->get_field('course', 'shortname', ['id' => $cm->course]) ?: 'Kurs';
-
-                // Determine the module type.
-                $modname = $DB->get_field('modules', 'name', ['id' => $cm->module]);
-
-                if ($modname === 'qbank') {
-                    // Read the question bank instance name from mod_qbank.
-                    $bankname = $DB->get_field('qbank', 'name', ['id' => $cm->instance]);
-                    if ($bankname) {
-                        return $coursename . ' › ' . $bankname;
-                    }
-                } else if ($modname === 'quiz') {
-                    $quizname = $DB->get_field('quiz', 'name', ['id' => $cm->instance]);
-                    if ($quizname) {
-                        return $coursename . ' › Quiz: ' . $quizname;
-                    }
-                }
-
-                // Fallback: the course name is sufficient.
-                return $coursename;
-
-            default:
-                return 'Kontext #' . $instanceid;
-        }
     }
 
     // ---------------------------------------------------------------
@@ -643,14 +349,13 @@ class block_fragenfilter_external extends external_api {
         );
 
         self::validate_search_context($params['contextid']);
-        $sysctx = context_system::instance();
 
         $formats = implode(',', \block_fragenfilter\question_export::enabled_formats());
 
         return [
-            'canexport'     => isloggedin() && !isguestuser() && has_capability('block/fragenfilter:export', $sysctx),
-            'canpreview'    => isloggedin() && !isguestuser(),
-            'isloggedin'    => isloggedin() && !isguestuser(),
+            'canexport'     => \block_fragenfilter\visitor_access::may_export(),
+            'canpreview'    => \block_fragenfilter\visitor_access::may_preview(),
+            'isloggedin'    => \block_fragenfilter\visitor_access::has_real_login(),
             'exportformats' => $formats,
         ];
     }
@@ -692,8 +397,6 @@ class block_fragenfilter_external extends external_api {
      * @return array Current average, count and own rating.
      * nosemgrep: moodle-external-ohne-kontextpruefung */
     public static function rate_question(int $questionid, int $rating, int $contextid): array {
-        global $DB;
-
         $params = self::validate_parameters(self::rate_question_parameters(), [
             'questionid' => $questionid,
             'rating' => $rating,
@@ -707,30 +410,7 @@ class block_fragenfilter_external extends external_api {
         if ($params['rating'] < 1 || $params['rating'] > 5) {
             throw new invalid_parameter_exception('Rating must be between 1 and 5.');
         }
-        $qid = (int)$params['questionid'];
-        if (!\block_fragenfilter\question_visibility::is_visible($qid)) {
-            throw new moodle_exception('invalidquestion', 'block_fragenfilter');
-        }
-        $hash = self::$ratingcookie ??= \block_kursfilter\rating_helper::renew_cookie_hash()
-            ?? \block_kursfilter\rating_helper::create_cookie_hash();
-        $record = (object)[
-            'questionid' => $qid, 'cookiehash' => $hash,
-            'stars' => $params['rating'], 'timecreated' => time(),
-        ];
-        // The unique index also protects simultaneous requests from the same browser.
-        try {
-            $record->id = $DB->insert_record('block_fragenfilter_ratings', $record);
-        } catch (dml_write_exception $e) {
-            if (!$DB->record_exists('block_fragenfilter_ratings', ['questionid' => $qid, 'cookiehash' => $hash])) {
-                throw $e;
-            }
-            return self::compute_rating($qid, $hash);
-        }
-        \block_fragenfilter\event\question_rated::create([
-            'context' => $context, 'objectid' => $record->id,
-            'other' => ['questionid' => $qid, 'stars' => $params['rating']],
-        ])->trigger();
-        return self::compute_rating($qid, $hash);
+        return \block_fragenfilter\rating::rate((int)$params['questionid'], $params['rating'], $context);
     }
 
     /**
@@ -763,7 +443,7 @@ class block_fragenfilter_external extends external_api {
      * Context and block access are checked by validate_search_context(). Only questions the
      * caller may see carry rating data; all others are answered like unknown questions.
      *
-     * @param string $questionids Comma-separated question IDs, at most MAX_RATING_IDS distinct ones.
+     * @param string $questionids Comma-separated question IDs, at most rating::MAX_IDS distinct ones.
      * @param int    $contextid   Current context.
      * @return array Average, count and own rating for each requested question.
      * nosemgrep: moodle-external-ohne-kontextpruefung */
@@ -771,8 +451,6 @@ class block_fragenfilter_external extends external_api {
         string $questionids,
         int $contextid
     ): array {
-        global $DB;
-
         $params = self::validate_parameters(self::get_ratings_parameters(), [
             'questionids' => $questionids,
             'contextid'   => $contextid,
@@ -784,55 +462,16 @@ class block_fragenfilter_external extends external_api {
             array_map('intval', explode(',', $params['questionids'])),
             fn(int $id): bool => $id > 0
         )));
-        if (count($requested) > self::MAX_RATING_IDS) {
-            throw new invalid_parameter_exception('At most ' . self::MAX_RATING_IDS . ' questions may be requested.');
+        if (count($requested) > \block_fragenfilter\rating::MAX_IDS) {
+            throw new invalid_parameter_exception(
+                'At most ' . \block_fragenfilter\rating::MAX_IDS . ' questions may be requested.'
+            );
         }
         if (empty($requested)) {
             return ['ratings' => []];
         }
-        // Questions the caller cannot see are answered like unknown ones: no rating data.
-        $visible = \block_fragenfilter\question_visibility::visible_ids($requested);
-        $avgs = [];
-        $myratings = [];
-        if ($visible) {
-            [$insql, $args] = $DB->get_in_or_equal($visible, SQL_PARAMS_NAMED, 'qid');
-
-            // Average and count per question.
-            $avgs = $DB->get_records_sql(
-                "SELECT questionid,
-                        AVG(stars) AS average,
-                        COUNT(*)    AS cnt
-                   FROM {block_fragenfilter_ratings}
-                  WHERE questionid $insql
-               GROUP BY questionid",
-                $args
-            );
-
-            $hash = self::$ratingcookie ?? \block_kursfilter\rating_helper::get_cookie_hash();
-            if ($hash !== null) {
-                $rows = $DB->get_records_sql(
-                    "SELECT questionid, stars
-                       FROM {block_fragenfilter_ratings}
-                      WHERE questionid $insql
-                        AND cookiehash = :hash",
-                    array_merge($args, ['hash' => $hash])
-                );
-                foreach ($rows as $row) {
-                    $myratings[(int)$row->questionid] = (int)$row->stars;
-                }
-            }
-        }
-
-        $result = [];
-        foreach ($requested as $qid) {
-            $result[] = [
-                'questionid' => $qid,
-                'average'    => isset($avgs[$qid]) ? round((float)$avgs[$qid]->average, 1) : 0.0,
-                'count'      => isset($avgs[$qid]) ? (int)$avgs[$qid]->cnt : 0,
-                'myrating'   => $myratings[$qid] ?? 0,
-            ];
-        }
-        return ['ratings' => $result];
+        $hash = \block_fragenfilter\rating::cookie_for_reading();
+        return ['ratings' => \block_fragenfilter\rating::for_questions($requested, $hash)];
     }
 
     /**
@@ -849,33 +488,5 @@ class block_fragenfilter_external extends external_api {
                 ])
             ),
         ]);
-    }
-
-    /**
-     * Calculates the average and own rating for one question.
-     *
-     * @param int      $qid    Question ID.
-     * @param string $hash Kursfilter cookie hash.
-     * @return array Average, count and own rating.
-     */
-    private static function compute_rating(int $qid, string $hash): array {
-        global $DB;
-
-        $avg  = (float)$DB->get_field_sql(
-            "SELECT AVG(stars) FROM {block_fragenfilter_ratings} WHERE questionid = :qid",
-            ['qid' => $qid]
-        );
-        $cnt  = $DB->count_records('block_fragenfilter_ratings', ['questionid' => $qid]);
-        $mine = (int)$DB->get_field(
-            'block_fragenfilter_ratings',
-            'stars',
-            ['questionid' => $qid, 'cookiehash' => $hash]
-        );
-
-        return [
-            'average'  => round($avg, 1),
-            'count'    => (int)$cnt,
-            'myrating' => $mine,
-        ];
     }
 }

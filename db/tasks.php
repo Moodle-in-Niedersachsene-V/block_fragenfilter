@@ -26,6 +26,19 @@
 defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
+    // Destroy idle fragenfilter pool-account sessions so pool slots are freed
+    // even when guests close the browser tab without clicking "Abmelden".
+    // Runs every 15 minutes; Moodle's own session GC complements this.
+    [
+        'classname' => '\block_fragenfilter\task\cleanup_pool_sessions',
+        'blocking'  => 0,
+        'minute'    => '*/15',
+        'hour'      => '*',
+        'day'       => '*',
+        'month'     => '*',
+        'dayofweek' => '*',
+        'disabled'  => 0,
+    ],
     // AI tagging for questions without a tag suggestion, daily at 03:00.
     // Disabled by default; must be enabled in the settings.
     [

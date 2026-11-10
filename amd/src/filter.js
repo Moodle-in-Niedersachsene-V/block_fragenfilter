@@ -233,18 +233,21 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
                 return;
             }
             if (event.data && event.data.type === 'qf_pool_login_done') {
+                // Pool login is now complete in the popup. The main page still
+                // runs under the guest session and needs to adopt the new
+                // session cookie. We reload so that Moodle picks up the pool
+                // account's session — but only after saving the current filter
+                // state so restoreSelectionAfterReload() can rebuild the view.
+                //
+                // If the state was already saved by openPreview() (guest path)
+                // it is still there and the reload will restore it.
+                // If for any reason it was not saved (e.g. a second preview
+                // click before the first reload), save it now.
                 try {
-                    sessionStorage.setItem(
-                        'qf_restore_selection_' + self.blockid,
-                        JSON.stringify({
-                            ids: Object.keys(self.selected),
-                            search: self.search,
-                            cats: self.cats,
-                            types: self.types,
-                            diffs: self.diffs,
-                            tags: self.tags,
-                        })
-                    );
+                    var restoreKey = 'qf_restore_selection_' + self.blockid;
+                    if (!sessionStorage.getItem(restoreKey)) {
+                        self.saveStateForReload();
+                    }
                 } catch (e) { /* Ignore storage errors. */ }
                 window.location.reload();
             }
@@ -259,22 +262,44 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         try {
             var restoreKey = 'qf_restore_selection_' + self.blockid;
             var stored = sessionStorage.getItem(restoreKey);
-            if (stored) {
-                sessionStorage.removeItem(restoreKey);
-                var snap = JSON.parse(stored);
-                if (snap && Array.isArray(snap.ids) && snap.ids.length) {
-                    self.search = snap.search || '';
-                    self.cats = snap.cats || {};
-                    self.types = snap.types || {};
-                    self.diffs = snap.diffs || {};
-                    self.tags = snap.tags || [];
-                    snap.ids.forEach(function(id) {
-                        self.selected[String(id)] = true;
-                    });
-                    self.updateFooter();
-                    self.triggerSearch();
-                }
+            if (!stored) {
+                return;
             }
+            sessionStorage.removeItem(restoreKey);
+            var snap = JSON.parse(stored);
+            if (!snap) {
+                return;
+            }
+
+            // Restore all filter state, not just selected IDs.
+            self.search = snap.search || '';
+            self.cats = snap.cats || {};
+            self.types = snap.types || {};
+            self.diffs = snap.diffs || {};
+            self.tags = snap.tags || [];
+            if (Array.isArray(snap.ids)) {
+                snap.ids.forEach(function(id) {
+                    self.selected[String(id)] = true;
+                });
+            }
+
+            // Reflect search text back in the DOM.
+            var searchEl = self.el('search');
+            if (searchEl && self.search) {
+                searchEl.value = self.search;
+            }
+
+            // Reflect active difficulty chips.
+            self.block().querySelectorAll('.qf-chip-diff').forEach(function(btn) {
+                if (self.diffs[btn.dataset.value]) {
+                    btn.classList.add('qf-chip-active');
+                }
+            });
+
+            // Re-render tag chips and trigger a new search.
+            self.renderTagChips();
+            self.updateCatInput();
+            self.triggerSearch();
         } catch (e) { /* Ignore storage errors. */ }
     };
 
@@ -938,16 +963,18 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
     BlockState.prototype.openPreview = function(qid) {
         var self = this;
         var wwwroot = self.config.wwwroot || M.cfg.wwwroot;
-        var url;
 
-        if (self.config.isloggedin) {
-            // Logged-in user: go directly to the Moodle preview page.
-            url = wwwroot + '/question/bank/previewquestion/preview.php?id=' + qid;
-            window.open(url, 'qf_preview_' + qid, 'width=900,height=700,scrollbars=yes,resizable=yes');
-            return;
+        // All users — including already-logged-in pool accounts — go through
+        // guest_preview.php so that it can look up the cmid of the mod_qbank
+        // activity that holds the question (required by Moodle 5+ preview.php)
+        // and redirect accordingly.  Guests additionally get a pool account here.
+        if (!self.config.isloggedin) {
+            // Guest: the pool login may cause Moodle to refresh the main page
+            // (session-cookie change). Save filter state so it can be restored.
+            self.saveStateForReload();
         }
 
-        // The public login step requires a session-bound POST.
+        // POST to guest_preview.php (sesskey required for CSRF protection).
         var target = 'qf_preview_' + qid;
         window.open('', target, 'width=900,height=700,scrollbars=yes,resizable=yes');
         var form = document.createElement('form');
@@ -964,6 +991,27 @@ define(['core/ajax', 'core/notification'], function(Ajax, Notification) {
         document.body.appendChild(form);
         form.submit();
         form.remove();
+    };
+
+    /**
+     * Saves the current filter state to sessionStorage so it can be restored
+     * after an unexpected page reload (e.g. triggered by a session-cookie change
+     * when the pool login happens in the preview popup).
+     */
+    BlockState.prototype.saveStateForReload = function() {
+        var self = this;
+        try {
+            var key = 'qf_restore_selection_' + self.blockid;
+            var snap = {
+                search: self.search,
+                cats: self.cats,
+                types: self.types,
+                diffs: self.diffs,
+                tags: self.tags,
+                ids: Object.keys(self.selected).map(Number),
+            };
+            sessionStorage.setItem(key, JSON.stringify(snap));
+        } catch (e) { /* Ignore storage errors. */ }
     };
 
     // ---------------------------------------------------------------

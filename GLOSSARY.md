@@ -54,7 +54,7 @@ _Avoid_: Gast, Nutzer
 Code: `visitor`
 
 **Pool-Konto**:
-Ein vom Kursfilter verwaltetes Moodle-Konto, das genau einem Besucher für eine Vorschau überlassen wird; danach darf der Besucher auch exportieren.
+Ein vom Fragenfilter verwaltetes Moodle-Konto, das einem Besucher für eine Vorschau überlassen wird; danach darf der Besucher auch exportieren.
 _Avoid_: Pool-Nutzer, Gastnutzer, Gastkonto
 Code: `pool account`
 
@@ -75,6 +75,11 @@ Welche Fragen ein Nutzer sehen darf, geregelt über die Moodle-Capabilities `que
 _Avoid_: Rechte bei der Suche
 Code: `visibility`
 
+**Besucher-Berechtigung**:
+Die Entscheidung, ob ein Besucher sich echt angemeldet hat, exportieren darf und eine Vorschau starten darf; Gast- und anonyme Besucher sind vom Export ausgeschlossen.
+_Avoid_: Gastrecht, Exportrecht
+Code: `visitor_access`
+
 ## KI-Verschlagwortung
 
 **Tag-Vorschlag**:
@@ -85,4 +90,4 @@ Code: `suggestion`
 **Prüfung**:
 Die Freigabe oder Ablehnung eines Tag-Vorschlags durch eine berechtigte Person (`reviewtags`); jede Prüfung löst ein Ereignis aus.
 _Avoid_: Review, Moderation
-Code: `suggestion_review`, Ereignis `suggestion_reviewed`
+Code: `tag_suggestion` (Anlegen, Anwenden, Prüfen), `suggestion_review` (Sichtbarkeit, Abfrage), Ereignis `suggestion_reviewed`

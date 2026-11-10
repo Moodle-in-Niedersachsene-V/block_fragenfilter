@@ -99,7 +99,6 @@ jobs:
 
       - name: Moodle und Plugin installieren
         run: |
-          moodle-plugin-ci add-plugin --branch main Moodle-in-Niedersachsene-V/block_kursfilter
           moodle-plugin-ci install --plugin ./plugin --db-host=127.0.0.1
         env:
           DB: ${{ matrix.database }}

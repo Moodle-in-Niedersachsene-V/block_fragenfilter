@@ -25,13 +25,68 @@ namespace block_fragenfilter;
  */
 final class question_visibility {
     /**
-     * SQL predicate for the question (q) and category (qc) aliases.
+     * Return a SQL fragment and parameter array that restrict a question query to
+     * mod_qbank activities in courses belonging to the Aufgabenpool category tree.
      *
-     * @param string $scope Search scope.
-     * @param int $contextid Current context.
-     * @return array SQL predicate and named parameters.
+     * The fragment must be added to the WHERE clause of a query that already joins
+     * {question_categories} as "qc". It adds the necessary extra JOINs via a
+     * sub-select so it can be safely appended with AND.
+     *
+     * Uses the category's stored path column (e.g. "/1/17") to match the category
+     * itself and all its descendants with a single LIKE, which handles arbitrary
+     * nesting depth and avoids false positives from identically-named sibling
+     * categories.
+     *
+     * @return array{string, array<string,mixed>} [sql_fragment, params]
      */
-    public static function sql(string $scope, int $contextid): array {
+    public static function pool_category_sql(): array {
+        global $DB;
+
+        $poolcatname = \block_fragenfilter\pool_manager::POOL_ENROL_CATEGORY;
+        $poolcat     = $DB->get_record('course_categories', ['name' => $poolcatname], 'id,path', IGNORE_MISSING);
+
+        if (!$poolcat) {
+            // No Aufgabenpool category found — return a fragment that matches nothing
+            // so the filter is safely restrictive rather than leaking all questions.
+            return ['1 = 0', []];
+        }
+
+        $pathprefix = $DB->sql_like_escape($poolcat->path);
+
+        $sql = "EXISTS (
+            SELECT 1
+              FROM {course_modules} cm2
+              JOIN {modules} m2 ON m2.id = cm2.module AND m2.name = 'qbank'
+              JOIN {context} ctx2 ON ctx2.instanceid = cm2.id AND ctx2.contextlevel = :poolctxlvl
+              JOIN {course} c2 ON c2.id = cm2.course
+              JOIN {course_categories} cat2 ON cat2.id = c2.category
+             WHERE ctx2.id = qc.contextid
+               AND (" . $DB->sql_like('cat2.path', ':poolexact') . "
+                OR " . $DB->sql_like('cat2.path', ':poolsub') . ")
+        )";
+
+        $params = [
+            'poolctxlvl' => CONTEXT_MODULE,
+            'poolexact'  => $pathprefix,
+            'poolsub'    => $pathprefix . '/%',
+        ];
+
+        return [$sql, $params];
+    }
+
+
+    /**
+     * The one query every list of questions starts from: ready, top-level questions the current user may see.
+     *
+     * Aliases: q (question), qv (version), qbe (bank entry), qc (category), ctx (category context).
+     * Callers append further conditions with AND, and their own SELECT, GROUP BY and ORDER BY.
+     *
+     * @param string $scope Search scope: all, course or system.
+     * @param int $contextid Current context ID.
+     * @return array [FROM ... WHERE fragment, named parameters]
+     * @throws \invalid_parameter_exception For an unknown scope.
+     */
+    public static function visible_query(string $scope, int $contextid): array {
         global $DB, $USER;
 
         if (!in_array($scope, ['all', 'course', 'system'], true)) {
@@ -40,7 +95,8 @@ final class question_visibility {
         $user = isloggedin() ? $USER : guest_user();
         $all = [];
         $mine = [];
-        foreach (self::contextids($scope, $contextid) as $id) {
+        $contextids = self::contextids($scope, $contextid);
+        foreach ($contextids as $id) {
             $context = \context::instance_by_id($id);
             if (has_capability('moodle/question:viewall', $context, $user)) {
                 $all[] = $id;
@@ -61,7 +117,24 @@ final class question_visibility {
             $args += $params;
             $args['viewer'] = $user->id;
         }
-        return [$clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0', $args];
+        if (isguestuser($user) || !isloggedin() || preview_role::is_pool_account($user)) {
+            $clauses = ['1 = 0'];
+            $args = [];
+            if ($contextids) {
+                [$insql, $args] = $DB->get_in_or_equal($contextids, SQL_PARAMS_NAMED, 'publicctx');
+                $clauses = ["qc.contextid $insql"];
+            }
+        }
+        [$poolsql, $poolargs] = self::pool_category_sql();
+        $args += $poolargs;
+        $visibility = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
+        $from = "FROM {question} q
+                   JOIN {question_versions} qv ON qv.questionid = q.id
+                   JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                   JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
+                   JOIN {context} ctx ON ctx.id = qc.contextid
+                  WHERE q.parent = 0 AND qv.status = 'ready' AND $visibility AND $poolsql";
+        return [$from, $args];
     }
 
     /**
@@ -88,14 +161,10 @@ final class question_visibility {
         if (!$questionids) {
             return [];
         }
-        [$visibilitysql, $args] = self::sql('all', \context_system::instance()->id);
+        [$from, $args] = self::visible_query('all', \context_system::instance()->id);
         [$insql, $idargs] = $DB->get_in_or_equal($questionids, SQL_PARAMS_NAMED, 'questionid');
         $visible = $DB->get_fieldset_sql(
-            "SELECT q.id FROM {question} q
-               JOIN {question_versions} qv ON qv.questionid = q.id
-               JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
-               JOIN {question_categories} qc ON qc.id = qbe.questioncategoryid
-              WHERE q.id $insql AND q.parent = 0 AND qv.status = 'ready' AND $visibilitysql",
+            "SELECT q.id $from AND q.id $insql",
             $args + $idargs
         );
         return array_values(array_intersect($questionids, array_map('intval', $visible)));

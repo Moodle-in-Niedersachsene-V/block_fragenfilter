@@ -1,14 +1,22 @@
 # Testing
 
-PHPUnit läuft in einer isolierten Moodle-Testinstallation. CI prüft Moodle 5.1/PHP 8.3 mit MariaDB 10.11 und Moodle 5.2/PHP 8.4 mit PostgreSQL 16. Beide Jobs installieren `block_kursfilter` von `main` per `moodle-plugin-ci add-plugin` und führen `moodle-plugin-ci phpunit --fail-on-warning` aus. phpcs, phpdoc, savepoints, mustache und grunt bleiben aktiv.
+PHPUnit läuft in einer isolierten Moodle-Testinstallation. CI prüft Moodle 5.1/PHP 8.3 mit MariaDB 10.11 und Moodle 5.2/PHP 8.4 mit PostgreSQL 16. Beide Jobs führen `moodle-plugin-ci phpunit --fail-on-warning` aus. phpcs, phpdoc, savepoints, mustache und grunt bleiben aktiv.
 
-Der Fragenfilter hängt von `block_kursfilter` ab (`version.php`) und baut keine eigenen Pool-Sperren. `tests/preview_role_test.php` prüft, dass er keine eigenen Hook-Callbacks für Pool-Konten registriert, und die Vorschaurolle (Upgrade-Schritt, Ausschluss ähnlich benannter Konten). Die Pool-Grenzen selbst testet der Kursfilter.
+Der Fragenfilter verwendet eigene `fragenfilter_pool*`-Konten und eigene Hooks
+([ADR 0004](../adr/0004-independent-preview-pool-and-published-banks.md)). Die
+Vereinssuite prüft ihn ohne Kursfilter; der lokale HTTP-Lauf zusätzlich mit
+installiertem Kursfilter. `tests/generator/lib.php` erzeugt veröffentlichte
+Fragebanken im Aufgabenpool. Altkontexte außerhalb dieses Bereichs sind kein
+öffentlicher Fragenbestand.
+
+Historische Nachweise weiter unten beschreiben den damaligen Kursfilter-Vertrag;
+für die Integration gelten die aktuellen Tests und der Integrationsnachweis.
 
 ## Lokale Vorbereitung
 
 Keine gemeinsam genutzte Installation, Datenbank oder laufende Instanz verwenden. Eine eigene Moodle-Kopie, eine eigene leere Datenbank und eigene Datenverzeichnisse anlegen. PHP benötigt die Moodle-Erweiterungen, insbesondere cURL und den passenden Datenbanktreiber, sowie `max_input_vars=5000` und ausreichend Speicher (lokal 512 MB).
 
-1. Moodle 5.1 oder 5.2 in ein eigenes Verzeichnis auschecken, Abhängigkeiten mit `composer install` installieren. Dieses Repo nach `public/blocks/fragenfilter` verlinken oder kopieren, `block_kursfilter` von `main` nach `public/blocks/kursfilter` auschecken. Keine Secrets oder `config.php` aus einer anderen Installation übernehmen.
+1. Moodle 5.1 oder 5.2 in ein eigenes Verzeichnis auschecken, Abhängigkeiten mit `composer install` installieren. Dieses Repo nach `public/blocks/fragenfilter` verlinken oder kopieren. Keine Secrets oder `config.php` aus einer anderen Installation übernehmen.
 2. Eine eigene `config.php` im Moodle-Root nach `config-dist.php` erstellen: Datenbanktreiber, Host, Name, Benutzer und Passwort ausschließlich der Testdatenbank, `prefix = 'mdl_'`, `wwwroot` und ein eigenes `dataroot`. Zusätzlich `phpunit_prefix = 'phpu_'` und ein separates `phpunit_dataroot` setzen. Beide Datenverzeichnisse müssen für CLI und Webserver schreibbar sein.
 3. Vor `require_once(__DIR__ . '/lib/setup.php');` die Umleitung einfügen:
 
@@ -28,7 +36,7 @@ Keine gemeinsam genutzte Installation, Datenbank oder laufende Instanz verwenden
    php public/admin/tool/phpunit/cli/init.php
    ```
 
-   Dies installiert auch beide Plugins in den PHPUnit-Tabellen und erzeugt `phpunit.xml`. Nach Plugin- oder Versionsänderungen erneut ausführen. Während Initialisierung und Testlauf darf kein anderer Test dieselbe Datenbank verwenden.
+   Dies installiert den Fragenfilter in den PHPUnit-Tabellen und erzeugt `phpunit.xml`. Nach Plugin- oder Versionsänderungen erneut ausführen. Während Initialisierung und Testlauf darf kein anderer Test dieselbe Datenbank verwenden.
    Den strengen CI-Nachinstallationsschritt bei Änderungen an Bootstrap/Hooks zusätzlich ausführen:
 
    ```bash
@@ -227,3 +235,29 @@ git archive --format=zip --prefix=fragenfilter/ -o /tmp/block_fragenfilter_<buil
 ```
 
 Installationsnachweis in einer frischen, isolierten Moodle-Instanz (eigene Datenbank, eigenes Datenverzeichnis, `block_kursfilter` von `main`): Zip nach `public/blocks/` entpacken, `admin/cli/install_database.php`, danach `admin/cli/upgrade.php` ohne Fehler und `core_plugin_manager` meldet `block_fragenfilter` mit der Build-Nummer.
+
+## Eigener Pool und Browser-E2E (Integration 07.11.2026)
+
+Der aktuelle [Prüfbericht](../checks/fragenfilter-integration-2026-11-07.md) enthält
+die ausgeführten Befehle, Fixture-IDs, acht Browser-Szenarien und deren Grenzen.
+`tests/e2e/seed.php` benötigt explizit `FRAGENFILTER_E2E_SETUP=1` und ist nur für
+eine dedizierte Testinstanz bestimmt. `tests/e2e/fragenfilter.cjs` verwendet eine
+vorhandene Playwright-Testumgebung und die ausgegebene Fixture-JSON; keine
+Moodle-Laufzeitabhängigkeit. Die Standalone-Suite wurde frisch ohne Kursfilter
+installiert, die echte Spike-E2E prüft zusätzlich die Koexistenz. Historische
+Kursfilter-IP-Sperrtests sind durch den ausdrücklich erlaubten zweiten Besucher
+derselben Adresse ersetzt.
+
+### Moodle 5.2: öffentliche Startseite und PostgreSQL-Cursor
+
+Die HTTP-Fixtures aktivieren neben `forcelogin=0` ausdrücklich `enablemyhome=1`.
+Moodle 5.2 deaktiviert Home standardmäßig; `defaulthomepage=HOMEPAGE_SITE` allein
+verhindert dann die Weiterleitung zur Anmeldung bzw. zum Dashboard nicht. Das
+ist Testaufbau für die öffentliche Hub-Startseite, keine globale Einstellung
+durch den Fragenfilter. Auf einer echten Moodle-5.2-Instanz muss Home für diesen
+Startseitenablauf entsprechend aktiviert sein.
+
+Der Tag-Ladetest vergleicht die Roundtrip-Zahl für eine und drei Fragen.
+PostgreSQL verwendet bei `get_recordset_sql()` einen Cursor und zählt zusätzlich
+`FETCH` und `CLOSE`. Der Test verlangt deshalb konstante Kosten bei mehr Fragen
+und erkennt weiterhin N+1, ohne eine treiberspezifische Zahl festzuschreiben.

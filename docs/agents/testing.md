@@ -4,8 +4,7 @@ PHPUnit läuft in einer isolierten Moodle-Testinstallation. CI prüft Moodle 5.1
 
 Der Fragenfilter verwendet eigene `fragenfilter_pool*`-Konten und eigene Hooks
 ([ADR 0004](../adr/0004-independent-preview-pool-and-published-banks.md)). Die
-Vereinssuite prüft ihn ohne Kursfilter; der lokale HTTP-Lauf zusätzlich mit
-installiertem Kursfilter. `tests/generator/lib.php` erzeugt veröffentlichte
+Vereinssuite prüft ihn ohne weitere Plugins. `tests/generator/lib.php` erzeugt veröffentlichte
 Fragebanken im Aufgabenpool. Altkontexte außerhalb dieses Bereichs sind kein
 öffentlicher Fragenbestand.
 

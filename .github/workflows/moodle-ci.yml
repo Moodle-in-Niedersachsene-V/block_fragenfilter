@@ -19,6 +19,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  no-kursfilter:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keine Abhängigkeit auf block_kursfilter
+        run: .github/scripts/check-no-kursfilter.sh
+
   semgrep:
     runs-on: ubuntu-22.04
     container:

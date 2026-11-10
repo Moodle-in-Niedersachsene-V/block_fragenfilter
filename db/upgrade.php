@@ -139,7 +139,7 @@ function xmldb_block_fragenfilter_upgrade(int $oldversion): bool {
         upgrade_block_savepoint(true, 2026101601, 'fragenfilter');
     }
 
-    // Build 2026101603: The preview role goes to all pool accounts of block_kursfilter, including later created ones.
+    // Build 2026101603: The preview role goes to all legacy kursfilter_pool* pool accounts, including later created ones.
     if ($oldversion < 2026101603) {
         \block_fragenfilter\preview_role::assign_to_pool_accounts();
         upgrade_block_savepoint(true, 2026101603, 'fragenfilter');
@@ -259,7 +259,7 @@ function xmldb_block_fragenfilter_upgrade(int $oldversion): bool {
 
     // Build 2026102206: create fragenfilter's own pool accounts (fragenfilter_pool01-10).
     //
-    // This decouples block_fragenfilter from block_kursfilter for the question preview:
+    // This decouples block_fragenfilter from the former Kursfilter plugin for the question preview:
     // - Own accounts use the 'fragenfilter_pool' username prefix.
     // - No per-IP lock — multiple tabs from the same visitor are each served their own slot.
     // - Sessions are cleaned up by the cleanup_pool_sessions scheduled task.
